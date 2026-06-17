@@ -33,19 +33,15 @@ static void debug_print_record(const WardrivingRecord* r) {
         "BSSID=%02X:%02X:%02X:%02X:%02X:%02X "
         "SSID='%s' "
         "RSSI=%d ch=%d enc=%d "
-        "lat=%.6f lon=%.6f alt=%.1f "
-        "hdop=%.1f sats=%d "
-        "bearing=%.1f range=%.2f in_cone=%d "
-        "t=%lu.%03u\n",
+        "uptime=%lums "
+        "bearing=%.1f range=%.2f in_cone=%d\n",
         r->node_id,
-        r->bssid[0], r->bssid[1], r->bssid[2],
+        r->bssid[0], r->bssid[1], r->bssid[2], 
         r->bssid[3], r->bssid[4], r->bssid[5],
         r->ssid,
         r->rssi, r->channel, r->enc_type,
-        r->latitude, r->longitude, r->altitude_m,
-        (float)r->hdop_x10 / 10.0f, r->satellites,
-        r->bearing_deg, r->range_m, r->in_cone,
-        r->timestamp_unix, r->timestamp_ms
+        r->uptime_ms,
+        r->bearing_deg, r->range_m, r->in_cone
     );
 }
 #endif
