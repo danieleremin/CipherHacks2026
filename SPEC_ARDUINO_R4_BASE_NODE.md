@@ -9,7 +9,7 @@
 
 ## 1. System Overview
 
-This node is the coordinator, logger, and user interface of the wardriving system. It receives structured detection records from one or more ESP32 sensor nodes over ESP-NOW, performs manufacturer lookup from a local OUI database, writes complete records to SD card, drives an LCD display for real-time status, and exposes a physical mode toggle that broadcasts the current scan mode back to all sensor nodes.
+This node is the coordinator, logger, and user interface of the wardriving system. It receives structured detection records from one or more ESP32 sensor nodes over ESP-NOW, performs manufacturer lookup from a local OUI database, writes complete records to SD card, drives an LCD display for real-time status, and accepts serial commands over USB to toggle the scan mode and broadcast it back to all sensor nodes.
 
 You do not need to know how the ESP32 nodes capture WiFi frames, parse GPS, or read sensors. Your job begins when a `WardrivingRecord` arrives via ESP-NOW. Everything below describes how to handle it correctly.
 
@@ -77,20 +77,20 @@ Additionally, write an **extended CSV** with the extra fields that WiGLE doesn't
 
 ### 2.5 Scan Modes
 
-The base node owns the current scan mode. When the user presses the mode toggle button, the base node:
+The base node owns the current scan mode. When the user sends a mode command over USB Serial, the base node:
 1. Updates its own mode variable
 2. Broadcasts a mode command to all ESP32 sensor nodes via ESP-NOW
 3. Updates the LCD display
 
 **Mode A — Radius:** All omnidirectional detections. Log everything received.
 
-**Mode B — Cone:** When the user holds the lock button, the base node sends a `CMD_CONE_LOCK` to all nodes, which causes them to save their current IMU heading as the cone lock direction. Records arriving with `in_cone = 0` are logged but visually dimmed on the LCD.
+**Mode B — Cone:** When the user sends the lock command, the base node sends a `CMD_CONE_LOCK` to all nodes, which causes them to save their current IMU heading as the cone lock direction. Records arriving with `in_cone = 0` are logged but visually dimmed on the LCD.
 
-### 2.6 LCD Display (Arduino R4 LED Matrix vs External LCD)
+### 2.6 LCD Display (Arduino R4 LED Matrix vs TFT Shield)
 
 The Arduino R4 WiFi has an onboard **12×8 red LED matrix**. This is useful for very simple status (a dot moving = scanning, all lit = error) but too small for meaningful text.
 
-**This spec uses an external I²C LCD.** The recommended part is a **16×2 or 20×4 character LCD with I²C backpack** (based on the PCF8574 I/O expander). These are widely available and use the `LiquidCrystal_I2C` library.
+**This spec uses an external 2.8" TFT LCD Shield.** These shields plug directly into the Arduino and usually include a built-in microSD card reader on the SPI pins (CS=10, MOSI=11, MISO=12, SCK=13). They use an 8-bit parallel interface for the display, utilizing `MCUFRIEND_kbv` and `Adafruit_GFX` libraries.
 
 The onboard LED matrix can still be used as a secondary indicator (e.g., animate a scanning pattern, flash on each record received).
 
@@ -124,35 +124,23 @@ Key capabilities:
 | Component | Part | Interface | Notes |
 |---|---|---|---|
 | Board | Arduino Uno R4 WiFi | — | Includes onboard ESP32-S3 for WiFi |
-| LCD | 20×4 LCD with I²C backpack (PCF8574) | I²C | Adafruit or generic; address 0x27 or 0x3F |
-| SD card module | SparkFun microSD breakout or equivalent | SPI | 3.3V logic; use level shifter if needed |
-| GPS module | u-blox NEO-M9N or M8N | UART | Optional — for base node's own position fix |
-| Mode button | Momentary SPST | GPIO | Active LOW, internal pull-up |
-| Lock button | Momentary SPST | GPIO | Cone lock trigger; active LOW |
+| LCD / SD | 2.8" TFT LCD Shield Arduino | 8-bit / SPI | Plugs directly into Uno R4; includes SD card reader |
 | microSD card | SanDisk Industrial 8GB+ | — | Wear-leveled; avoid cheap cards |
-| Status LED (optional) | Standard 5mm LED | GPIO | Record-received flash indicator |
 
 ### 3.3 Pin Assignment (Arduino Uno R4 WiFi)
 
 | Signal | Pin | Notes |
 |---|---|---|
-| LCD SDA | A4 | I²C bus; 4.7kΩ pull-up to 5V |
-| LCD SCL | A5 | I²C bus |
-| SD CS | Pin 10 | SPI chip select |
+| LCD Data | D2-D9 | 8-bit parallel data (D0/D1 on shield use D8/D9) |
+| LCD Ctrl | A0-A4 | RD, WR, RS, CS, RST |
+| SD CS | Pin 10 | SPI chip select for built-in SD reader |
 | SD MOSI | Pin 11 | SPI MOSI |
 | SD MISO | Pin 12 | SPI MISO |
 | SD SCK | Pin 13 | SPI clock |
-| Mode button | Pin 2 | Active LOW, `INPUT_PULLUP` |
-| Lock button | Pin 3 | Active LOW, `INPUT_PULLUP` |
-| GPS RX (→ board TX) | Pin 7 | SoftwareSerial RX from GPS |
-| GPS TX (→ board RX) | Pin 8 | SoftwareSerial TX to GPS |
-| Status LED | Pin 4 | Through 220Ω resistor to GND |
 
-**Note on I²C addresses:**  
-- LCD with PCF8574: `0x27` (most common) or `0x3F` (some variants)  
-- If both addresses fail, use an I²C scanner sketch to identify the correct address before proceeding.
+**Note on Shield Pins:** The 2.8" TFT shield consumes almost all digital and analog pins. UI control is handled entirely through the USB Serial connection to avoid pin starvation.
 
-**Note on SD card voltage:** The R4 runs at 5V logic on most pins but SD cards are 3.3V. Use an SD module with onboard level shifting (most breakout boards include this). If using a bare SD card slot, add a 3.3V level shifter on MOSI, CS, and SCK.
+**Note on SD card voltage:** The TFT shield handles 3.3V logic conversion for the LCD and SD card internally.
 
 ---
 
@@ -188,14 +176,13 @@ The R4 is not running FreeRTOS directly (unlike the ESP32). The Arduino framewor
 ```
 setup()
   ├── init SD card
-  ├── init LCD
+  ├── init TFT LCD
   ├── init LED matrix
-  ├── init GPS (optional)
   ├── init ESP-NOW receive
   └── open log file on SD
 
 loop()
-  ├── poll buttons (debounced)
+  ├── process serial commands
   ├── drain ESP-NOW receive queue
   │     └── for each record:
   │           ├── OUI lookup
@@ -203,7 +190,6 @@ loop()
   │           ├── write to SD (WiGLE CSV + extended CSV)
   │           └── update LCD
   ├── update LED matrix animation
-  ├── update GPS (if fitted)
   └── heartbeat / watchdog
 ```
 
@@ -241,9 +227,6 @@ State is stored as a single `uint8_t mode` variable (values from `packet_schema.
 #define LCD_COLS  20
 #define LCD_ROWS  4
 
-// I²C address of LCD backpack (try 0x27 first, then 0x3F)
-#define LCD_I2C_ADDR  0x27
-
 // SD log filenames
 #define WIGLE_CSV_FILENAME    "/wardrive_wigle.csv"
 #define EXTENDED_CSV_FILENAME "/wardrive_ext.csv"
@@ -255,22 +238,10 @@ State is stored as a single `uint8_t mode` variable (values from `packet_schema.
 // Maximum unique BSSIDs to track for deduplication (RAM constraint)
 #define DEDUP_MAP_SIZE  256
 
-// Buttons
-#define PIN_MODE_BUTTON  2
-#define PIN_LOCK_BUTTON  3
-#define PIN_STATUS_LED   4
-
-// Button debounce time
-#define DEBOUNCE_MS  50
-
 // ESP-NOW command bytes (sent in 1-byte payload to sensor nodes)
 #define CMD_SET_RADIUS  0x01
 #define CMD_SET_CONE    0x02
 #define CMD_CONE_LOCK   0x03
-
-// Minimum GPS quality (used if base node has its own GPS)
-#define MIN_SATELLITES  4
-#define MAX_HDOP        3.0f
 ```
 
 ### 5.2 `packet_schema.h` (shared with ESP32 node — do not modify unilaterally)
@@ -381,17 +352,13 @@ uint32_t espnow_rx_dropped() { return dropped; }
 
 ```c
 // mode_manager.cpp
+#include <Arduino.h>
 #include <espnow.h>
 #include "mode_manager.h"
 #include "config.h"
 
 static uint8_t current_mode = MODE_RADIUS;
 static bool    cone_locked  = false;
-
-static uint8_t last_mode_btn = HIGH;
-static uint8_t last_lock_btn = HIGH;
-static uint32_t last_debounce_mode = 0;
-static uint32_t last_debounce_lock = 0;
 
 static void broadcast_cmd(uint8_t cmd) {
     uint8_t bcast[] = BROADCAST_MAC;
@@ -405,35 +372,45 @@ static void broadcast_cmd(uint8_t cmd) {
 }
 
 void mode_manager_init() {
-    pinMode(PIN_MODE_BUTTON, INPUT_PULLUP);
-    pinMode(PIN_LOCK_BUTTON, INPUT_PULLUP);
+    // Nothing to init for serial
 }
 
 void mode_manager_update() {
-    uint32_t now = millis();
-
-    // Mode toggle button
-    uint8_t mode_btn = digitalRead(PIN_MODE_BUTTON);
-    if (mode_btn != last_mode_btn && (now - last_debounce_mode) > DEBOUNCE_MS) {
-        last_debounce_mode = now;
-        if (mode_btn == LOW) {  // Falling edge = press
-            current_mode = (current_mode == MODE_RADIUS) ? MODE_CONE : MODE_RADIUS;
+    if (!Serial.available()) return;
+    
+    char c = Serial.read();
+    
+    // R = Radius Mode
+    if (c == 'R' || c == 'r') {
+        if (current_mode != MODE_RADIUS) {
+            current_mode = MODE_RADIUS;
             cone_locked = false;
-            broadcast_cmd(current_mode == MODE_RADIUS ? CMD_SET_RADIUS : CMD_SET_CONE);
+            broadcast_cmd(CMD_SET_RADIUS);
+            Serial.println("Switched to RADIUS mode");
         }
     }
-    last_mode_btn = mode_btn;
-
-    // Cone lock button (only active in cone mode)
-    uint8_t lock_btn = digitalRead(PIN_LOCK_BUTTON);
-    if (lock_btn != last_lock_btn && (now - last_debounce_lock) > DEBOUNCE_MS) {
-        last_debounce_lock = now;
-        if (lock_btn == LOW && current_mode == MODE_CONE) {
-            cone_locked = true;
-            broadcast_cmd(CMD_CONE_LOCK);
+    // C = Cone Mode
+    else if (c == 'C' || c == 'c') {
+        if (current_mode != MODE_CONE) {
+            current_mode = MODE_CONE;
+            broadcast_cmd(CMD_SET_CONE);
+            Serial.println("Switched to CONE mode");
         }
     }
-    last_lock_btn = lock_btn;
+    // L = Toggle Cone Lock
+    else if (c == 'L' || c == 'l') {
+        if (current_mode == MODE_CONE) {
+            cone_locked = !cone_locked;
+            if (cone_locked) {
+                broadcast_cmd(CMD_CONE_LOCK);
+                Serial.println("Cone LOCKED");
+            } else {
+                Serial.println("Cone UNLOCKED");
+            }
+        } else {
+            Serial.println("Error: Must be in CONE mode to lock");
+        }
+    }
 }
 
 uint8_t mode_manager_get_mode()      { return current_mode; }
@@ -657,14 +634,14 @@ void sd_logger_write(const WardrivingRecord* r, const char* manufacturer) {
 
 ## 8. LCD Display
 
-### 8.1 Layout — 20×4 Display
+### 8.1 Layout — TFT Display (using 20x4 character layout equivalent)
 
 ```
 ┌────────────────────┐
 │ MODE: RADIUS   [R] │   Row 0: Mode indicator
 │ NETS: 0142 NODES:2 │   Row 1: Unique BSSIDs seen, active nodes
 │ AA:BB:CC Cisco -67 │   Row 2: Last detected: OUI/mfr, RSSI
-│ GPS:OK SAT:08 H:12 │   Row 3: GPS quality (HDOP shown as ×10)
+│ WIFI: OK   Q_DRP:0 │   Row 3: Base node status
 └────────────────────┘
 ```
 
@@ -678,46 +655,52 @@ In cone mode with an out-of-cone detection, row 2 shows `(OOC)` suffix.
 ### 8.2 LCD Implementation
 
 ```c
-// lcd_display.cpp
-#include <LiquidCrystal_I2C.h>
+// tft_display.cpp
+#include <Adafruit_GFX.h>
+#include <MCUFRIEND_kbv.h>
 #include "lcd_display.h"
 #include "config.h"
+#include "espnow_rx.h"
 
-static LiquidCrystal_I2C lcd(LCD_I2C_ADDR, LCD_COLS, LCD_ROWS);
+static MCUFRIEND_kbv tft;
 
 void lcd_init() {
-    lcd.init();
-    lcd.backlight();
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Wardriver R4");
-    lcd.setCursor(0, 1);
-    lcd.print("Initializing...");
+    uint16_t ID = tft.readID();
+    if (ID == 0xD3D3) ID = 0x9486; // Write-only shield
+    tft.begin(ID);
+    tft.setRotation(1); // Landscape
+    tft.fillScreen(0x0000); // Black
+    tft.setTextColor(0xFFFF, 0x0000); // White on black
+    tft.setTextSize(2);
+    
+    tft.setCursor(0, 0);
+    tft.print("Wardriver R4");
+    tft.setCursor(0, 20);
+    tft.print("Initializing...");
 }
 
 void lcd_update(uint8_t mode, bool cone_locked,
                 uint16_t unique_nets, uint8_t active_nodes,
-                const WardrivingRecord* last_rec, const char* mfr,
-                uint8_t gps_sats, uint8_t gps_hdop_x10) {
+                const WardrivingRecord* last_rec, const char* mfr) {
 
     // Row 0: Mode
-    lcd.setCursor(0, 0);
+    tft.setCursor(0, 0);
     if (mode == MODE_RADIUS) {
-        lcd.print("MODE: RADIUS    [R] ");
+        tft.print("MODE: RADIUS    [R] ");
     } else if (cone_locked) {
-        lcd.print("CONE: LOCKED   [C*] ");
+        tft.print("CONE: LOCKED   [C*] ");
     } else {
-        lcd.print("CONE: UNLOCKED  [C] ");
+        tft.print("CONE: UNLOCKED  [C] ");
     }
 
     // Row 1: Network stats
-    lcd.setCursor(0, 1);
+    tft.setCursor(0, 20);
     char row1[21];
     snprintf(row1, sizeof(row1), "NETS:%04u NODES:%u    ", unique_nets, active_nodes);
-    lcd.print(row1);
+    tft.print(row1);
 
     // Row 2: Last detection
-    lcd.setCursor(0, 2);
+    tft.setCursor(0, 40);
     if (last_rec) {
         char mac_short[9];  // First 3 bytes only: "AA:BB:CC"
         snprintf(mac_short, sizeof(mac_short), "%02X:%02X:%02X",
@@ -730,18 +713,16 @@ void lcd_update(uint8_t mode, bool cone_locked,
         char row2[21];
         snprintf(row2, sizeof(row2), "%s %-8s %4d",
                  mac_short, mfr_short, last_rec->rssi);
-        lcd.print(row2);
+        tft.print(row2);
     } else {
-        lcd.print("Waiting for data... ");
+        tft.print("Waiting for data... ");
     }
 
-    // Row 3: GPS status
-    lcd.setCursor(0, 3);
+    // Row 3: Status
+    tft.setCursor(0, 60);
     char row3[21];
-    bool gps_ok = (gps_sats >= MIN_SATELLITES && gps_hdop_x10 <= (uint8_t)(MAX_HDOP * 10));
-    snprintf(row3, sizeof(row3), "GPS:%-2s SAT:%02u H:%02u  ",
-             gps_ok ? "OK" : "--", gps_sats, gps_hdop_x10);
-    lcd.print(row3);
+    snprintf(row3, sizeof(row3), "WIFI: OK   Q_DRP:%-3lu ", espnow_rx_dropped());
+    tft.print(row3);
 }
 ```
 
@@ -864,11 +845,8 @@ board     = uno_r4_wifi
 framework = arduino
 
 lib_deps =
-    marcoschwartz/LiquidCrystal_I2C @ ^1.1.4
-    mikalhart/TinyGPSPlus @ ^1.0.3
-
-build_flags =
-    -DLCD_I2C_ADDR=0x27
+    adafruit/Adafruit GFX Library @ ^1.11.5
+    prenticedavid/MCUFRIEND_kbv @ ^3.1.0-Beta
 
 monitor_speed = 115200
 upload_speed  = 921600
@@ -967,16 +945,13 @@ static WardrivingRecord last_record;
 static bool has_last_record = false;
 static char last_mfr[24] = "---";
 static bool record_flash = false;
-static uint32_t flash_time = 0;
 
 void setup() {
     Serial.begin(115200);
 
-    pinMode(PIN_STATUS_LED, OUTPUT);
-
     if (!sd_logger_init()) {
         Serial.println("SD init failed");
-        while (true) { digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED)); delay(200); }
+        while (true) { delay(200); }
     }
 
     if (!oui_lookup_init()) {
@@ -989,6 +964,7 @@ void setup() {
     espnow_rx_init();
 
     Serial.println("Wardriver R4 ready.");
+    Serial.println("Commands: [R]adius mode, [C]one mode, [L]ock cone");
 }
 
 void loop() {
@@ -1010,15 +986,6 @@ void loop() {
         strncpy(last_mfr, mfr, 23);
         has_last_record = true;
         record_flash = true;
-        flash_time = millis();
-
-        digitalWrite(PIN_STATUS_LED, HIGH);
-    }
-
-    // Dim LED after flash
-    if (record_flash && (millis() - flash_time > 80)) {
-        record_flash = false;
-        digitalWrite(PIN_STATUS_LED, LOW);
     }
 
     // LCD update (throttled to avoid flicker)
@@ -1031,8 +998,7 @@ void loop() {
             dedup_unique_count(),
             1,  // TODO: track active node count from received node_ids
             has_last_record ? &last_record : nullptr,
-            last_mfr,
-            0, 0  // TODO: wire in GPS if base node has one
+            last_mfr
         );
     }
 
