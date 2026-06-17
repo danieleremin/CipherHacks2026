@@ -1,6 +1,13 @@
 // firmware/esp32-sensor/src/imu.cpp
 // BNO085 rotation vector → magnetic heading, cone lock management.
-// See SPEC_ESP32_SENSOR_NODE.md Section 7.
+//
+// When BNO085 is not connected, falls back to SERIAL_HEADING mode:
+// type a heading in degrees into the serial monitor and press Enter
+// to inject it. This lets you test cone mode logic without hardware.
+// Commands:
+//   123.4    → set heading to 123.4°
+//   lock     → lock current heading as cone center
+//   unlock   → clear cone lock
 
 #include "imu.h"
 #include "config.h"
@@ -11,64 +18,114 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
 
 // ── Module-private state ───────────────────────────────────────────────────
 
 static Adafruit_BNO08x   s_bno;
 static sh2_SensorValue_t s_imu_val;
 
-static volatile float    s_heading_deg = 0.0f;   // Current heading [0, 360)
-static volatile float    s_h_lock_deg  = -1.0f;  // Cone lock heading, -1 = not set
+static volatile float    s_heading_deg = 0.0f;
+static volatile float    s_h_lock_deg  = -1.0f;
+static volatile bool     s_hw_present  = false;
 
 static SemaphoreHandle_t s_imu_mutex = NULL;
 
-// BNO085 I²C address: 0x4A (Adafruit breakout default)
-static const uint8_t BNO085_I2C_ADDR = 0x4A;
-
-// Rotation vector report interval in microseconds (10000 µs = 100Hz)
+static const uint8_t  BNO085_I2C_ADDR           = 0x4A;
 static const uint32_t ROTATION_VECTOR_INTERVAL_US = 10000;
 
-// ── Quaternion to yaw helper ───────────────────────────────────────────────
-// Extracts magnetic heading (yaw about the vertical axis) from a unit quaternion.
-// Returns degrees in [0, 360).
+// ── Quaternion to heading ──────────────────────────────────────────────────
 
 static float quaternion_to_heading(float qw, float qx, float qy, float qz) {
-    // Yaw (rotation around Z axis) from quaternion:
-    // yaw = atan2(2*(qw*qz + qx*qy), 1 - 2*(qy*qy + qz*qz))
     float yaw_rad = atan2f(2.0f * (qw * qz + qx * qy),
                            1.0f - 2.0f * (qy * qy + qz * qz));
-
-    // Convert radians to degrees and shift from [-180, 180] to [0, 360)
     float heading = yaw_rad * (180.0f / (float)M_PI);
-    if (heading < 0.0f) {
-        heading += 360.0f;
-    }
+    if (heading < 0.0f) heading += 360.0f;
     return heading;
 }
 
-// ── IMU FreeRTOS task ──────────────────────────────────────────────────────
+// ── Serial heading injection (fallback when no IMU hardware) ───────────────
+// Reads lines from Serial. A bare number sets the heading.
+// "lock" locks the current heading. "unlock" clears it.
 
-static void imu_task_fn(void* arg) {
+static void serial_heading_task_fn(void* arg) {
     (void)arg;
 
-    // Wire must already be initialized by the time this task runs.
-    // wifi_scan_init() does not use Wire; main.cpp calls Wire.begin() before
-    // starting tasks.
+    char buf[32];
+    uint8_t idx = 0;
+
+    Serial.println("[IMU] No hardware — serial heading mode active.");
+    Serial.println("[IMU] Type a heading (0-360) and press Enter to set.");
+    Serial.println("[IMU] Type 'lock' to lock cone, 'unlock' to clear.");
+
+    while (true) {
+        while (Serial.available()) {
+            char c = (char)Serial.read();
+
+            if (c == '\n' || c == '\r') {
+                if (idx == 0) continue;
+                buf[idx] = '\0';
+                idx = 0;
+
+                // Strip trailing whitespace
+                while (strlen(buf) > 0 && buf[strlen(buf)-1] == ' ')
+                    buf[strlen(buf)-1] = '\0';
+
+                if (strcmp(buf, "lock") == 0) {
+                    imu_lock_heading();
+                } else if (strcmp(buf, "unlock") == 0) {
+                    imu_clear_lock();
+                    Serial.println("[IMU] Cone lock cleared.");
+                } else {
+                    // Try parsing as a float heading
+                    char* end;
+                    float val = strtof(buf, &end);
+                    if (end != buf && val >= 0.0f && val < 360.0f) {
+                        xSemaphoreTake(s_imu_mutex, portMAX_DELAY);
+                        s_heading_deg = val;
+                        xSemaphoreGive(s_imu_mutex);
+                        Serial.printf("[IMU] Heading set to %.1f°\n", val);
+                    } else {
+                        Serial.printf("[IMU] Unknown command: '%s'\n", buf);
+                    }
+                }
+            } else if (idx < sizeof(buf) - 1) {
+                buf[idx++] = c;
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+// ── BNO085 hardware task ───────────────────────────────────────────────────
+
+static void imu_hw_task_fn(void* arg) {
+    (void)arg;
+
     if (!s_bno.begin_I2C(BNO085_I2C_ADDR, &Wire)) {
-        // BNO085 not found or failed to initialize.
-        // Log to Serial and park — the system will operate without heading data.
-        Serial.println("[IMU] BNO085 init failed. Heading will be unavailable.");
+        Serial.println("[IMU] BNO085 not found — falling back to serial heading mode.");
+        // Start serial injection task instead
+        xTaskCreatePinnedToCore(
+            serial_heading_task_fn,
+            "imu_serial",
+            2048,
+            NULL,
+            2,
+            NULL,
+            1
+        );
         vTaskDelete(NULL);
         return;
     }
 
-    // Enable rotation vector report at 100Hz (most stable heading source)
     if (!s_bno.enableReport(SH2_ROTATION_VECTOR, ROTATION_VECTOR_INTERVAL_US)) {
-        Serial.println("[IMU] Failed to enable rotation vector report.");
+        Serial.println("[IMU] Failed to enable rotation vector.");
         vTaskDelete(NULL);
         return;
     }
 
+    s_hw_present = true;
     Serial.println("[IMU] BNO085 ready. Wave in figure-8 to calibrate.");
 
     while (true) {
@@ -86,8 +143,6 @@ static void imu_task_fn(void* arg) {
                 xSemaphoreGive(s_imu_mutex);
             }
         }
-
-        // 10ms tick — matches the sensor report interval
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
@@ -98,15 +153,14 @@ void imu_task_start() {
     s_imu_mutex = xSemaphoreCreateMutex();
     configASSERT(s_imu_mutex != NULL);
 
-    // Core 1, priority 3 (below gps_task at 4)
     xTaskCreatePinnedToCore(
-        imu_task_fn,
+        imu_hw_task_fn,
         "imu_task",
-        2048,   // Stack bytes — BNO08x library is lightweight
+        3072,
         NULL,
         3,
         NULL,
-        1       // Core 1
+        1
     );
 }
 

@@ -1,11 +1,12 @@
 // firmware/esp32-sensor/src/wifi_scan.cpp
 // WiFi promiscuous capture, 802.11 IE parsing, channel hopping, ESP-NOW setup.
 
-#include "WiFi_Scan.h"
+#include "wifi_scan.h"
 #include "config.h"
 #include "imu.h"
 #include "rangefinder.h"
-#include "../../shared/packet_schema.h"
+#include "rssi_avg.h"
+#include "packet_schema.h"
 
 #include <string.h>
 #include <math.h>
@@ -83,7 +84,10 @@ void wifi_scan_init(QueueHandle_t queue) {
     peer.encrypt = false;
     esp_now_add_peer(&peer);
 
-    // 6. Channel-hop timer (starts when wifi_scan_start() is called)
+    // 6. RSSI averager
+    rssi_avg_init();
+
+    // 7. Channel-hop timer (starts when wifi_scan_start() is called)
     s_hop_timer = xTimerCreate(
         "ch_hop",
         pdMS_TO_TICKS(CHANNEL_DWELL_MS),
@@ -166,6 +170,20 @@ static void wifi_sniffer_cb(void* buf, wifi_promiscuous_pkt_type_t type) {
     const int      ies_len = frame_len - 36;
     if (ies_len > 0) {
         parse_beacon_ies(ies, ies_len, &rec, cap_privacy);
+    }
+
+    // Feed raw RSSI into the rolling averager for this BSSID.
+    // Replace instantaneous RSSI with the smoothed value before transmitting.
+    // This reduces effective noise floor from ±5 dBm to ~±1 dBm over 20
+    // samples, allowing meaningful differential RSSI between nodes spaced
+    // as close as 15–20cm apart.
+    rssi_avg_update(rec.bssid, rec.rssi);
+    {
+        float smoothed = 0.0f;
+        uint8_t sample_count = 0;
+        if (rssi_avg_get(rec.bssid, &smoothed, &sample_count)) {
+            rec.rssi = (int8_t)smoothed;
+        }
     }
 
     populate_sensor_fields(&rec);
@@ -308,6 +326,23 @@ static void espnow_recv_cb(const uint8_t* mac,
             break;
         case CMD_CONE_LOCK:
             imu_lock_heading();
+            break;
+        case CMD_SYNC_CHANNEL:
+            // Payload: [CMD_SYNC_CHANNEL, channel_number]
+            // Locks all nodes to the same channel for differential RSSI correlation.
+            // Send with no channel byte to resume autonomous hopping.
+            if (len >= 2) {
+                uint8_t ch = data[1];
+                if (ch >= 1 && ch <= 13) {
+                    if (s_hop_timer != NULL) xTimerStop(s_hop_timer, 0);
+                    for (uint8_t i = 0; i < NUM_CHANNELS; i++) {
+                        if (CHANNELS[i] == ch) { s_ch_idx = i; break; }
+                    }
+                    esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
+                }
+            } else {
+                if (s_hop_timer != NULL) xTimerStart(s_hop_timer, 0);
+            }
             break;
         default: break;
     }
