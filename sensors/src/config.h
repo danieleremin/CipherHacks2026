@@ -45,7 +45,7 @@
 // When defined, skip ESP-NOW transmission and dump records to Serial instead.
 // Useful for development without the Arduino R4 base node present.
 // Uncomment to enable, or define via build_flags: -DDEBUG_SERIAL_ONLY
-// #define DEBUG_SERIAL_ONLY
+#define DEBUG_SERIAL_ONLY
 
 // ── GPIO pin assignments (ESP32-S3-DevKitC-1) ─────────────────────────────
 #define PIN_GPS_RX      16      // UART1 RX ← GPS TX
