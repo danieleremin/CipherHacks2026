@@ -1,24 +1,27 @@
 /**
  * Filter state management and filtering operations
- * Memoized hooks for efficient filtered detection computation
+ * Memoized hooks for efficient filtered detection computation.
+ *
+ * Phase 2: time-range filtering is dropped (no wall-clock time). A
+ * `hideAnchor` toggle lets the user exclude anchor reference observations.
  */
 
 import { useMemo } from 'react';
 import { useSessionStore } from '@/store/session';
-import { Detection, AuthMode } from '@/types/detection';
+import { Detection, AuthMode, NodeId } from '@/types/detection';
 
 /**
  * Filter state type definition
  */
 export interface FilterState {
-  searchText: string;              // Search across SSID, BSSID, Manufacturer
-  authModes: AuthMode[];           // Empty = all
-  rssiRange: [number, number];     // [min, max] dBm
-  channels: number[];              // Empty = all
-  nodeIds: number[];               // Empty = all
+  searchText: string; // Search across SSID, BSSID, Manufacturer
+  authModes: AuthMode[]; // Empty = all
+  rssiRange: [number, number]; // [min, max] dBm
+  channels: number[]; // Empty = all
+  nodeIds: NodeId[]; // Empty = all
   inConeOnly: boolean;
   hideUnknownManufacturer: boolean;
-  timeRange: [Date, Date] | null;  // null = full session range
+  hideAnchor: boolean; // Exclude anchor reference observations
 }
 
 /**
@@ -32,7 +35,7 @@ export const DEFAULT_FILTERS: FilterState = {
   nodeIds: [],
   inConeOnly: false,
   hideUnknownManufacturer: false,
-  timeRange: null,
+  hideAnchor: false,
 };
 
 /**
@@ -66,8 +69,7 @@ export function useFilteredDetections(): Detection[] {
 
     // RSSI range filter
     d = d.filter(
-      (x) =>
-        x.rssi >= filters.rssiRange[0] && x.rssi <= filters.rssiRange[1]
+      (x) => x.rssi >= filters.rssiRange[0] && x.rssi <= filters.rssiRange[1]
     );
 
     // Channel filter
@@ -77,7 +79,7 @@ export function useFilteredDetections(): Detection[] {
 
     // Node ID filter
     if (filters.nodeIds.length > 0) {
-      d = d.filter((x) => filters.nodeIds.includes(x.nodeId ?? 0));
+      d = d.filter((x) => filters.nodeIds.includes(x.nodeId));
     }
 
     // Cone filter
@@ -90,13 +92,9 @@ export function useFilteredDetections(): Detection[] {
       d = d.filter((x) => x.manufacturer && x.manufacturer !== 'Unknown');
     }
 
-    // Time range filter
-    if (filters.timeRange) {
-      d = d.filter(
-        (x) =>
-          x.firstSeen >= filters.timeRange![0] &&
-          x.firstSeen <= filters.timeRange![1]
-      );
+    // Hide anchor reference observations
+    if (filters.hideAnchor) {
+      d = d.filter((x) => !x.isAnchor);
     }
 
     return d;

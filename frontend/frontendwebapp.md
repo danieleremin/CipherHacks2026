@@ -1,3 +1,5 @@
+IMPORTANT: DO NOT USE TAILWIND CSS
+
 # Wardriving Dashboard — Next.js Frontend Phase 2 Specification
 
 **Project:** Autonomous wardriving / RF detection system  

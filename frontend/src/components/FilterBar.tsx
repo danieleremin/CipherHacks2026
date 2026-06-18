@@ -1,7 +1,6 @@
 'use client';
 
 import { useSessionStore } from '@/store/session';
-import { useFilteredDetections } from '@/lib/filters';
 import { X } from 'lucide-react';
 
 export function FilterBar() {
@@ -16,7 +15,7 @@ export function FilterBar() {
     (filters.nodeIds.length > 0 ? 1 : 0) +
     (filters.inConeOnly ? 1 : 0) +
     (filters.hideUnknownManufacturer ? 1 : 0) +
-    (filters.timeRange ? 1 : 0);
+    (filters.hideAnchor ? 1 : 0);
 
   if (activeFilterCount === 0) return null;
 
@@ -71,6 +70,18 @@ export function FilterBar() {
             <span className="font-mono text-accent">In-cone only</span>
             <button
               onClick={() => setFilter('inConeOnly', false)}
+              className="ml-1 hover:text-signal-weak transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {filters.hideAnchor && (
+          <div className="flex items-center gap-2 px-3 py-1 bg-base border border-border rounded text-sm">
+            <span className="font-mono text-accent">Anchor hidden</span>
+            <button
+              onClick={() => setFilter('hideAnchor', false)}
               className="ml-1 hover:text-signal-weak transition-colors"
             >
               <X className="w-4 h-4" />

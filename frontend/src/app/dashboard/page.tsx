@@ -12,6 +12,7 @@ import { TimelineChart } from '@/components/TimelineChart';
 import { AuthPieChart } from '@/components/AuthPieChart';
 import { ConeAnalysis } from '@/components/ConeAnalysis';
 import { NodePanel } from '@/components/NodePanel';
+import { BearingPanel } from '@/components/BearingPanel';
 import { FilterBar } from '@/components/FilterBar';
 import { Navbar } from '@/components/Navbar';
 
@@ -54,7 +55,10 @@ export default function DashboardPage() {
         {/* Right: Panels (40% on desktop, stacked on mobile) */}
         <div className="flex-1 lg:w-2/5 space-y-4 overflow-y-auto" style={{ maxHeight: '600px' }}>
           {/* Networks Table */}
-          <div className="bg-surface border border-border rounded-lg p-4 shadow">
+          <div
+            id="network-table"
+            className="bg-surface border border-border rounded-lg p-4 shadow"
+          >
             <h3 className="font-mono text-sm font-semibold text-accent mb-3 uppercase tracking-wider">
               Networks
             </h3>
@@ -72,6 +76,13 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Bearing estimation (only when anchor data is present) */}
+      {session.summary.hasAnchorData && (
+        <div className="px-4">
+          <BearingPanel />
+        </div>
+      )}
 
       {/* Charts Section */}
       <div className="p-4 space-y-4">

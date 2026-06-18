@@ -1,11 +1,17 @@
 /**
  * CSV parsing logic for both WiGLE and extended format CSV files
- * Handles format auto-detection, validation, and row-by-row conversion
+ * Handles format auto-detection, validation, and row-by-row conversion.
+ *
+ * Phase 2: GPS columns are dead (always 0). uptime_ms is read from column 18
+ * (replaces HDOP), schema_version from column 19. Anchor detections are
+ * flagged by BSSID on load.
  */
 
 import Papa from 'papaparse';
-import { Detection, Session, AuthMode } from '@/types/detection';
+import { Detection, Session, AuthMode, NodeId } from '@/types/detection';
 import { computeSummary } from './summarize';
+import { buildAnchorObservations } from './anchor';
+import { ANCHOR_BSSID } from './constants';
 
 /**
  * Parse an AuthMode string from the CSV AuthMode column
@@ -23,63 +29,56 @@ function parseAuthMode(raw: string): AuthMode {
 }
 
 /**
- * Convert a CSV row to a Detection object
- * Returns null if the row is invalid (e.g., no GPS fix, insufficient columns)
+ * Convert a CSV row to a Detection object.
+ * Returns null only if the row has too few columns to be valid.
+ * GPS is gone, so 0,0 coordinates are no longer treated as "no fix".
  */
 function rowToDetection(row: string[], isExtended: boolean): Detection | null {
-  // Minimum columns required for WiGLE format
   if (row.length < 12) return null;
 
-  const lat = parseFloat(row[7]);
-  const lon = parseFloat(row[8]);
+  const uptimeMs = isExtended ? parseFloat(row[18]) : 0;
+  const mac = row[0].trim().toUpperCase();
 
-  // Skip rows with no GPS fix (0,0 indicates pre-fix)
-  if (lat === 0 && lon === 0) return null;
+  const nodeIdRaw = isExtended ? parseInt(row[12], 10) : 1;
+  const nodeId = (nodeIdRaw === 2 || nodeIdRaw === 3 ? nodeIdRaw : 1) as NodeId;
 
-  // Extended format has additional fields starting at index 12
   const bearingRaw = isExtended ? parseFloat(row[14]) : -1;
-  const rangeRaw = isExtended ? parseFloat(row[15]) : -1;
-  const hLockRaw = isExtended ? parseFloat(row[17]) : -1;
 
   return {
-    // Core identity
-    mac: row[0].trim().toUpperCase(),
+    mac,
     ssid: row[1].trim(),
     authMode: parseAuthMode(row[2]),
-
-    // Temporal
-    firstSeen: new Date(row[3].trim() + 'Z'), // Force UTC parsing
-
-    // RF
+    uptimeMs: Number.isFinite(uptimeMs) ? uptimeMs : 0,
     channel: parseInt(row[4], 10),
     frequencyMhz: parseInt(row[5], 10),
     rssi: parseInt(row[6], 10),
-
-    // Position
-    lat,
-    lon,
-    altitudeM: parseFloat(row[9]),
-    accuracyM: parseFloat(row[10]),
-
-    // Extended fields
-    nodeId: isExtended ? parseInt(row[12], 10) : null,
-    manufacturer: isExtended ? (row[13].trim() || null) : null,
+    lat: null, // GPS removed
+    lon: null,
+    nodeId,
+    schemaVersion: isExtended ? parseInt(row[19], 10) || 1 : 1,
+    manufacturer: isExtended ? row[13].trim() || null : null,
     bearingDeg: bearingRaw >= 0 ? bearingRaw : null,
-    rangeM: rangeRaw >= 0 ? rangeRaw : null,
-    inCone: isExtended ? (row[16] === '1' ? true : false) : null,
-    hLockDeg: hLockRaw >= 0 ? hLockRaw : null,
-    hdop: isExtended ? parseFloat(row[18]) : null,
-    satellites: isExtended ? parseInt(row[19], 10) : null,
-
-    // Computed
-    oui: row[0].trim().substring(0, 8).toUpperCase(),
+    rangeM: isExtended
+      ? parseFloat(row[15]) >= 0
+        ? parseFloat(row[15])
+        : null
+      : null,
+    inCone: isExtended ? row[16] === '1' : null,
+    hLockDeg: isExtended
+      ? parseFloat(row[17]) >= 0
+        ? parseFloat(row[17])
+        : null
+      : null,
+    oui: mac.substring(0, 8),
     scanMode: bearingRaw >= 0 ? 'cone' : 'radius',
+    isAnchor: mac === ANCHOR_BSSID,
   };
 }
 
 /**
  * Parse a CSV file (either WiGLE or extended format)
- * Returns a Session object with parsed detections and summary
+ * Returns a Session object with parsed detections, anchor observations
+ * and summary.
  */
 export async function parseCSV(
   file: File,
@@ -130,12 +129,15 @@ export async function parseCSV(
       complete: () => {
         if (onProgress) onProgress(95);
 
+        const anchorObservations = buildAnchorObservations(detections);
+
         const session: Session = {
           id: `${file.name}-${Date.now()}`,
           filename: file.name,
           detections,
+          anchorObservations,
           loadedAt: new Date(),
-          summary: computeSummary(detections),
+          summary: computeSummary(detections, anchorObservations),
         };
 
         if (onProgress) onProgress(100);

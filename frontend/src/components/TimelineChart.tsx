@@ -3,7 +3,7 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useFilteredDetections } from '@/lib/filters';
 import { useMemo } from 'react';
-import { format } from 'date-fns';
+import { formatUptimeMMSS } from '@/lib/format';
 
 export function TimelineChart() {
   const filtered = useFilteredDetections();
@@ -11,21 +11,21 @@ export function TimelineChart() {
   const data = useMemo(() => {
     if (filtered.length === 0) return [];
 
-    // Group detections by minute
+    // Group detections by 30-second uptime bucket (no wall-clock time).
+    const BUCKET_MS = 30000;
     const buckets = new Map<number, number>();
     for (const d of filtered) {
-      // Round to nearest minute
-      const minute = Math.floor(d.firstSeen.getTime() / 60000) * 60000;
-      buckets.set(minute, (buckets.get(minute) ?? 0) + 1);
+      const bucket = Math.floor(d.uptimeMs / BUCKET_MS) * BUCKET_MS;
+      buckets.set(bucket, (buckets.get(bucket) ?? 0) + 1);
     }
 
     // Convert to sorted array
     return Array.from(buckets.entries())
       .sort((a, b) => a[0] - b[0])
-      .map(([timestamp, count]) => ({
-        time: format(new Date(timestamp), 'HH:mm'),
+      .map(([uptimeMs, count]) => ({
+        time: formatUptimeMMSS(uptimeMs),
         count,
-        timestamp,
+        uptimeMs,
       }));
   }, [filtered]);
 

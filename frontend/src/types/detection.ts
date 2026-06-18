@@ -1,47 +1,74 @@
 /**
  * Core TypeScript types for the wardriving dashboard
- * Defines all data structures for CSV parsing and application state
+ * Phase 2: GPS removed, anchor-node bearing estimation added.
  */
 
 export type AuthMode = 'OPEN' | 'WEP' | 'WPA' | 'WPA2' | 'WPA3' | 'WPA2/WPA3' | 'UNKNOWN';
 export type ScanMode = 'radius' | 'cone';
+export type NodeId = 1 | 2 | 3;
 
 /**
  * Represents a single WiFi network detection/observation
  */
 export interface Detection {
   // Core identity
-  mac: string;           // "AA:BB:CC:DD:EE:FF" - BSSID
-  ssid: string;          // "" for hidden networks
+  mac: string; // "AA:BB:CC:DD:EE:FF"
+  ssid: string; // "" for hidden networks
   authMode: AuthMode;
 
-  // Temporal
-  firstSeen: Date;       // Parsed from FirstSeen column (UTC)
+  // Temporal — uptime_ms is milliseconds since the detecting node booted.
+  // Use for ordering and delta calculations only, not wall-clock display.
+  uptimeMs: number;
 
-  // RF characteristics
-  channel: number;       // 1-13
-  frequencyMhz: number;  // e.g. 2437
-  rssi: number;          // dBm, negative (e.g. -67)
+  // RF
+  channel: number; // 1–13
+  frequencyMhz: number;
+  rssi: number; // dBm, already smoothed by 20-sample averager on node
 
-  // Geographic position
-  lat: number;
-  lon: number;
-  altitudeM: number;
-  accuracyM: number;     // GPS accuracy radius in meters
+  // Position — GPS removed. lat/lon are always null.
+  lat: null;
+  lon: null;
 
-  // Extended fields (null if loaded from WiGLE-only CSV)
-  nodeId: number | null;           // Which ESP32 sensor node (1, 2, 3...)
-  manufacturer: string | null;     // OUI-derived, e.g. "Cisco Systems"
-  bearingDeg: number | null;       // IMU heading at detection; null if radius mode
-  rangeM: number | null;           // Rangefinder distance in metres; null if not active
-  inCone: boolean | null;          // true = within ±30° cone; false = outside
-  hLockDeg: number | null;         // Locked cone heading; null if radius mode
-  hdop: number | null;             // GPS quality (lower = better)
-  satellites: number | null;       // GPS satellites in fix
+  // Node metadata
+  nodeId: NodeId;
+  schemaVersion: number;
 
-  // Computed fields
-  scanMode: ScanMode;              // 'cone' if bearingDeg !== null, else 'radius'
-  oui: string;                     // First 3 bytes of MAC: "AA:BB:CC"
+  // Extended fields
+  manufacturer: string | null;
+  bearingDeg: number | null; // null if radius mode or -1 in CSV
+  rangeM: number | null;
+  inCone: boolean | null;
+  hLockDeg: number | null;
+
+  // Computed
+  scanMode: ScanMode;
+  oui: string; // First 8 chars of MAC: "AA:BB:CC"
+  isAnchor: boolean; // true if mac === ANCHOR_BSSID
+}
+
+/**
+ * A pair of RSSI readings for the anchor BSSID from both scanner nodes,
+ * captured within a correlation window. Used for bearing estimation.
+ */
+export interface AnchorObservation {
+  uptimeMs: number; // midpoint timestamp of the window
+  rssiNode1: number | null; // smoothed RSSI from node 1, null if not seen
+  rssiNode2: number | null; // smoothed RSSI from node 2, null if not seen
+  rssiDelta: number | null; // rssiNode1 - rssiNode2, null if either missing
+  bearingEstimateDeg: number | null; // computed bearing, null if insufficient data
+  confidenceScore: number; // 0.0–1.0, based on sample count and delta magnitude
+}
+
+/**
+ * A parsed session of wardriving data
+ */
+export interface Session {
+  id: string;
+  filename: string;
+  detections: Detection[]; // All detections including anchor observations
+  anchorObservations: AnchorObservation[]; // Correlated anchor records
+  loadedAt: Date;
+  summary: SessionSummary;
 }
 
 /**
@@ -49,32 +76,16 @@ export interface Detection {
  */
 export interface SessionSummary {
   totalDetections: number;
-  uniqueNetworks: number;           // Unique MACs
+  uniqueNetworks: number; // Unique MACs, excluding anchor
   uniqueManufacturers: number;
-  timeRange: { start: Date; end: Date };
-  bounds: {                         // Map bounding box
-    north: number;
-    south: number;
-    east: number;
-    west: number;
-  };
-  channelDistribution: Record<number, number>;        // channel → count
+  uptimeRange: { start: number; end: number }; // ms, from first to last detection
+  durationMs: number;
+  channelDistribution: Record<number, number>;
   authModeDistribution: Record<AuthMode, number>;
-  rssiHistogram: { bucket: string; count: number }[]; // e.g. "-70 to -60"
-  nodeIds: number[];                // Which sensor nodes contributed
+  rssiHistogram: { bucket: string; count: number }[];
+  nodeIds: NodeId[];
   hasConeData: boolean;
-  avgHdop: number | null;
-}
-
-/**
- * A parsed session of wardriving data
- */
-export interface Session {
-  id: string;               // Generated from filename + hash
-  filename: string;
-  detections: Detection[];
-  loadedAt: Date;
-
-  // Computed summary (calculated once on load)
-  summary: SessionSummary;
+  hasAnchorData: boolean;
+  bearingEstimates: AnchorObservation[]; // Alias for anchorObservations
+  // GPS fields permanently absent — no avgHdop, no bounds
 }

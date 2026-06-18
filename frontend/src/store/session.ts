@@ -1,11 +1,14 @@
 /**
  * Zustand store for application state
- * Manages: session data, filters, UI selections, map layer visibility
+ * Manages: session data, filters, UI selections, map layer visibility,
+ * and anchor / bearing selection.
  */
 
 import { create } from 'zustand';
-import { Detection, Session } from '@/types/detection';
+import { useMemo } from 'react';
+import { Session, AnchorObservation } from '@/types/detection';
 import { FilterState, DEFAULT_FILTERS } from '@/lib/filters';
+import { ANCHOR_BSSID } from '@/lib/constants';
 
 export interface SessionStore {
   // Session data
@@ -25,6 +28,11 @@ export interface SessionStore {
   selectedMac: string | null;
   setSelectedMac: (mac: string | null) => void;
 
+  // Anchor
+  anchorBssid: string; // From constants — not user-configurable
+  selectedObservationIdx: number | null; // Which bearing observation is highlighted
+  setSelectedObservation: (idx: number | null) => void;
+
   // Map layer visibility
   showHeatmap: boolean;
   showPathTrace: boolean;
@@ -40,6 +48,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
     set({
       session: null,
       selectedMac: null,
+      selectedObservationIdx: null,
       filters: DEFAULT_FILTERS,
     }),
 
@@ -55,6 +64,11 @@ export const useSessionStore = create<SessionStore>((set) => ({
   selectedMac: null,
   setSelectedMac: (mac) => set({ selectedMac: mac }),
 
+  // Anchor
+  anchorBssid: ANCHOR_BSSID,
+  selectedObservationIdx: null,
+  setSelectedObservation: (idx) => set({ selectedObservationIdx: idx }),
+
   // Map layer visibility
   showHeatmap: false,
   showPathTrace: false,
@@ -68,3 +82,27 @@ export const useSessionStore = create<SessionStore>((set) => ({
       showCone: layer === 'cone' ? !state.showCone : state.showCone,
     })),
 }));
+
+/**
+ * Derived hook — all correlated anchor observations for the current session.
+ */
+export function useAnchorObservations(): AnchorObservation[] {
+  const session = useSessionStore((s) => s.session);
+  return session?.anchorObservations ?? [];
+}
+
+/**
+ * Derived hook — the most recent anchor observation that produced a bearing
+ * estimate (by uptimeMs), or null if there is none.
+ */
+export function useLatestBearing(): AnchorObservation | null {
+  const observations = useAnchorObservations();
+  return useMemo(() => {
+    let latest: AnchorObservation | null = null;
+    for (const o of observations) {
+      if (o.bearingEstimateDeg === null) continue;
+      if (!latest || o.uptimeMs > latest.uptimeMs) latest = o;
+    }
+    return latest;
+  }, [observations]);
+}

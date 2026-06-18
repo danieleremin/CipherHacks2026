@@ -1,50 +1,37 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useSessionStore } from '@/store/session';
+import { useSessionStore, useLatestBearing } from '@/store/session';
 import { useFilteredDetections } from '@/lib/filters';
-import { format } from 'date-fns';
+import { formatRuntimeHHMMSS } from '@/lib/format';
 
 export function SummaryBar() {
   const session = useSessionStore((s) => s.session);
   const filtered = useFilteredDetections();
+  const latestBearing = useLatestBearing();
 
   // Compute summary from filtered detections
   const summary = useMemo(() => {
-    const uniqueMacs = new Set(filtered.map((d) => d.mac));
+    const real = filtered.filter((d) => !d.isAnchor);
+    const uniqueMacs = new Set(real.map((d) => d.mac));
     const uniqueManufacturers = new Set(
-      filtered.map((d) => d.manufacturer).filter(Boolean)
+      real.map((d) => d.manufacturer).filter(Boolean)
     );
-    const nodeIds = Array.from(
-      new Set(filtered.map((d) => d.nodeId).filter((n): n is number => n !== null))
-    );
-    const times = filtered.map((d) => d.firstSeen.getTime());
-    const duration = times.length > 0 ? Math.max(...times) - Math.min(...times) : 0;
-    const durationMs = new Date(duration);
+    const nodeIds = new Set(filtered.map((d) => d.nodeId));
+    const uptimes = filtered.map((d) => d.uptimeMs);
+    const durationMs =
+      uptimes.length > 0 ? Math.max(...uptimes) - Math.min(...uptimes) : 0;
     const avgRssi =
-      filtered.length > 0
-        ? filtered.reduce((sum, d) => sum + d.rssi, 0) / filtered.length
+      real.length > 0
+        ? real.reduce((sum, d) => sum + d.rssi, 0) / real.length
         : 0;
-    const avgHdop =
-      filtered.length > 0
-        ? filtered
-            .filter((d) => d.hdop !== null)
-            .reduce((sum, d) => sum + (d.hdop ?? 0), 0) /
-          filtered.filter((d) => d.hdop !== null).length
-        : null;
 
     return {
       networks: uniqueMacs.size,
       manufacturers: uniqueManufacturers.size,
-      duration:
-        durationMs.getUTCHours().toString().padStart(2, '0') +
-        ':' +
-        durationMs.getUTCMinutes().toString().padStart(2, '0') +
-        ':' +
-        durationMs.getUTCSeconds().toString().padStart(2, '0'),
-      nodes: nodeIds.length,
-      avgRssi: avgRssi.toFixed(1),
-      avgHdop: avgHdop?.toFixed(1) ?? null,
+      runtime: formatRuntimeHHMMSS(durationMs),
+      nodes: nodeIds.size,
+      avgRssi: avgRssi.toFixed(0),
     };
   }, [filtered]);
 
@@ -56,7 +43,9 @@ export function SummaryBar() {
         {/* Networks */}
         <div className="flex items-center gap-2">
           <span className="text-text-secondary">Networks:</span>
-          <span className="font-mono font-bold text-accent">{summary.networks}</span>
+          <span className="font-mono font-bold text-accent">
+            {summary.networks}
+          </span>
         </div>
 
         {/* Manufacturers */}
@@ -67,43 +56,43 @@ export function SummaryBar() {
           </span>
         </div>
 
-        {/* Duration */}
+        {/* Runtime (uptime-derived) */}
         <div className="flex items-center gap-2 border-l border-border pl-4">
-          <span className="text-text-secondary">Duration:</span>
-          <span className="font-mono font-bold text-accent">{summary.duration}</span>
+          <span className="text-text-secondary">Runtime:</span>
+          <span className="font-mono font-bold text-accent">
+            {summary.runtime}
+          </span>
         </div>
 
-        {/* Nodes (if multi-node) */}
-        {summary.nodes > 1 && (
-          <div className="flex items-center gap-2 border-l border-border pl-4">
-            <span className="text-text-secondary">Nodes:</span>
-            <span className="font-mono font-bold text-accent">{summary.nodes}</span>
-          </div>
-        )}
+        {/* Nodes */}
+        <div className="flex items-center gap-2 border-l border-border pl-4">
+          <span className="text-text-secondary">Nodes:</span>
+          <span className="font-mono font-bold text-accent">
+            {summary.nodes}
+          </span>
+        </div>
 
         {/* Avg RSSI */}
         <div className="flex items-center gap-2 border-l border-border pl-4">
           <span className="text-text-secondary">Avg RSSI:</span>
-          <span className="font-mono font-bold text-accent">{summary.avgRssi} dBm</span>
+          <span className="font-mono font-bold text-accent">
+            {summary.avgRssi} dBm
+          </span>
         </div>
 
-        {/* GPS Quality */}
-        {summary.avgHdop !== null && (
-          <div className="flex items-center gap-2 border-l border-border pl-4">
-            <span className="text-text-secondary">GPS:</span>
-            <span
-              className={`font-mono font-bold ${
-                parseFloat(summary.avgHdop) < 2
-                  ? 'text-signal-strong'
-                  : parseFloat(summary.avgHdop) < 5
-                    ? 'text-signal-mid'
-                    : 'text-signal-weak'
-              }`}
-            >
-              {summary.avgHdop} HDOP
-            </span>
-          </div>
-        )}
+        {/* Bearing (only when anchor data is present) */}
+        {session.summary.hasAnchorData &&
+          latestBearing?.bearingEstimateDeg != null && (
+            <div className="flex items-center gap-2 border-l border-border pl-4">
+              <span className="text-text-secondary">Bearing:</span>
+              <span className="font-mono font-bold text-accent">
+                {Math.round(latestBearing.bearingEstimateDeg)}°
+                <span className="text-text-secondary ml-1">
+                  ({Math.round(latestBearing.confidenceScore * 100)}%)
+                </span>
+              </span>
+            </div>
+          )}
       </div>
     </div>
   );

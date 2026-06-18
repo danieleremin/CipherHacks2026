@@ -1,12 +1,22 @@
 /**
  * Computes session summary statistics from a set of detections
- * Used during CSV parsing to pre-compute aggregate data
+ * Used during CSV parsing to pre-compute aggregate data.
+ *
+ * Phase 2: GPS-derived stats (bounds, HDOP) are gone. Time is expressed
+ * as uptimeMs ranges. Anchor detections are excluded from network counts
+ * and summarized separately via AnchorObservation[].
  */
 
-import { Detection, SessionSummary, AuthMode } from '@/types/detection';
+import {
+  Detection,
+  SessionSummary,
+  AuthMode,
+  NodeId,
+  AnchorObservation,
+} from '@/types/detection';
 
 /**
- * Compute RSSI histogram buckets (5-dBm ranges)
+ * Compute RSSI histogram buckets (10-dBm ranges)
  */
 function computeRssiHistogram(
   detections: Detection[]
@@ -36,38 +46,23 @@ function computeRssiHistogram(
 }
 
 /**
- * Compute bounding box for map
- */
-function computeBounds(detections: Detection[]) {
-  const validDetections = detections.filter(d => d.lat !== 0 && d.lon !== 0);
-
-  if (validDetections.length === 0) {
-    return { north: 0, south: 0, east: 0, west: 0 };
-  }
-
-  const lats = validDetections.map(d => d.lat);
-  const lons = validDetections.map(d => d.lon);
-
-  return {
-    north: Math.max(...lats),
-    south: Math.min(...lats),
-    east: Math.max(...lons),
-    west: Math.min(...lons),
-  };
-}
-
-/**
  * Compute all summary statistics for a detection set
  */
-export function computeSummary(detections: Detection[]): SessionSummary {
-  // Basic counts
-  const uniqueMacs = new Set(detections.map(d => d.mac));
+export function computeSummary(
+  detections: Detection[],
+  anchorObservations: AnchorObservation[]
+): SessionSummary {
+  // Real AP detections exclude anchor observations
+  const realDetections = detections.filter((d) => !d.isAnchor);
+
+  // Basic counts (exclude anchor from unique network count)
+  const uniqueMacs = new Set(realDetections.map((d) => d.mac));
   const uniqueManufacturers = new Set(
-    detections.map(d => d.manufacturer).filter(Boolean)
+    realDetections.map((d) => d.manufacturer).filter(Boolean)
   );
   const nodeIds = Array.from(
-    new Set(detections.map(d => d.nodeId).filter(n => n !== null))
-  ) as number[];
+    new Set(detections.map((d) => d.nodeId))
+  ).sort((a, b) => a - b) as NodeId[];
 
   // Auth mode distribution
   const authModeDistribution: Record<AuthMode, number> = {
@@ -79,46 +74,36 @@ export function computeSummary(detections: Detection[]): SessionSummary {
     'WPA2/WPA3': 0,
     UNKNOWN: 0,
   };
-  for (const d of detections) {
+  for (const d of realDetections) {
     authModeDistribution[d.authMode]++;
   }
 
   // Channel distribution
   const channelDistribution: Record<number, number> = {};
-  for (const d of detections) {
+  for (const d of realDetections) {
     channelDistribution[d.channel] = (channelDistribution[d.channel] ?? 0) + 1;
   }
 
-  // Time range
-  const times = detections.map(d => d.firstSeen.getTime());
-  const timeRange = {
-    start: new Date(Math.min(...times)),
-    end: new Date(Math.max(...times)),
-  };
+  // Uptime range (ms, monotonic and relative)
+  const uptimes = detections.map((d) => d.uptimeMs);
+  const start = uptimes.length > 0 ? Math.min(...uptimes) : 0;
+  const end = uptimes.length > 0 ? Math.max(...uptimes) : 0;
 
-  // GPS quality
-  const hdopValues = detections
-    .map(d => d.hdop)
-    .filter((h): h is number => h !== null);
-  const avgHdop =
-    hdopValues.length > 0
-      ? hdopValues.reduce((a, b) => a + b, 0) / hdopValues.length
-      : null;
-
-  // Check if there's cone data
-  const hasConeData = detections.some(d => d.bearingDeg !== null);
+  const hasConeData = detections.some((d) => d.bearingDeg !== null);
+  const hasAnchorData = anchorObservations.length > 0;
 
   return {
     totalDetections: detections.length,
     uniqueNetworks: uniqueMacs.size,
     uniqueManufacturers: uniqueManufacturers.size,
-    timeRange,
-    bounds: computeBounds(detections),
+    uptimeRange: { start, end },
+    durationMs: end - start,
     channelDistribution,
     authModeDistribution,
-    rssiHistogram: computeRssiHistogram(detections),
+    rssiHistogram: computeRssiHistogram(realDetections),
     nodeIds,
     hasConeData,
-    avgHdop,
+    hasAnchorData,
+    bearingEstimates: anchorObservations,
   };
 }

@@ -11,7 +11,17 @@ export function NodePanel() {
   const nodeStats = useMemo(() => {
     if (!session) return [];
 
-    const stats = new Map<number, any>();
+    interface NodeStat {
+      nodeId: number;
+      detections: number;
+      networks: Set<string>;
+      rssiMin: number;
+      rssiMax: number;
+      firstUptimeMs: number | null;
+      lastUptimeMs: number | null;
+    }
+
+    const stats = new Map<number, NodeStat>();
 
     for (const nodeId of session.summary.nodeIds) {
       stats.set(nodeId, {
@@ -20,13 +30,12 @@ export function NodePanel() {
         networks: new Set<string>(),
         rssiMin: 0,
         rssiMax: 0,
-        firstSeen: null,
-        lastSeen: null,
+        firstUptimeMs: null,
+        lastUptimeMs: null,
       });
     }
 
     for (const d of filtered) {
-      if (d.nodeId === null) continue;
       const stat = stats.get(d.nodeId);
       if (!stat) continue;
 
@@ -36,10 +45,10 @@ export function NodePanel() {
       if (stat.rssiMin === 0 || d.rssi < stat.rssiMin) stat.rssiMin = d.rssi;
       if (stat.rssiMax === 0 || d.rssi > stat.rssiMax) stat.rssiMax = d.rssi;
 
-      if (!stat.firstSeen || d.firstSeen < stat.firstSeen)
-        stat.firstSeen = d.firstSeen;
-      if (!stat.lastSeen || d.firstSeen > stat.lastSeen)
-        stat.lastSeen = d.firstSeen;
+      if (stat.firstUptimeMs === null || d.uptimeMs < stat.firstUptimeMs)
+        stat.firstUptimeMs = d.uptimeMs;
+      if (stat.lastUptimeMs === null || d.uptimeMs > stat.lastUptimeMs)
+        stat.lastUptimeMs = d.uptimeMs;
     }
 
     return Array.from(stats.values());

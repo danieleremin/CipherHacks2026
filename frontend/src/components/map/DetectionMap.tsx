@@ -1,40 +1,41 @@
 'use client';
 
-import dynamic from 'next/dynamic';
-import { useMemo } from 'react';
-import { useSessionStore } from '@/store/session';
-import { useFilteredDetections } from '@/lib/filters';
-import type { Detection } from '@/types/detection';
+import { MapPinOff } from 'lucide-react';
 
-// Dynamic import Leaflet (no SSR - accesses window)
-const MapContent = dynamic(
-  () => import('./MapContent').then((mod) => mod.MapContent),
-  { ssr: false, loading: () => <div className="w-full h-full bg-base flex items-center justify-center text-text-secondary">Loading map...</div> }
-);
-
+/**
+ * No-GPS map state.
+ *
+ * Phase 2 removed the GPS module entirely — every detection record is
+ * logged without coordinates (lat/lon are always null). Rather than render
+ * an empty Leaflet map (which would fire tile requests against 0,0), we show
+ * a clear empty state. The map remains here as a placeholder for a future
+ * GPS integration pass; the Leaflet renderer can be restored from history.
+ */
 export function DetectionMap() {
-  const filtered = useFilteredDetections();
-  const selectedMac = useSessionStore((s) => s.selectedMac);
-  const setSelectedMac = useSessionStore((s) => s.setSelectedMac);
-
-  // Group detections by MAC for clustering
-  const networkGroups = useMemo(() => {
-    const groups = new Map<string, Detection[]>();
-    for (const d of filtered) {
-      if (!groups.has(d.mac)) {
-        groups.set(d.mac, []);
-      }
-      groups.get(d.mac)!.push(d);
-    }
-    return groups;
-  }, [filtered]);
+  const goToTable = () => {
+    document
+      .getElementById('network-table')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   return (
-    <MapContent
-      detections={filtered}
-      networkGroups={networkGroups}
-      selectedMac={selectedMac}
-      onSelectNetwork={setSelectedMac}
-    />
+    <div className="w-full h-full bg-base flex items-center justify-center p-8">
+      <div className="max-w-sm text-center">
+        <MapPinOff className="w-12 h-12 mx-auto mb-4 text-text-secondary opacity-50" />
+        <h3 className="font-mono text-base font-semibold text-text-primary mb-2">
+          No location data available
+        </h3>
+        <p className="text-sm text-text-secondary mb-6 leading-relaxed">
+          GPS was not present in this session. Detection records are logged
+          without coordinates.
+        </p>
+        <button
+          onClick={goToTable}
+          className="px-4 py-2 bg-surface border border-accent text-accent font-mono text-sm font-semibold rounded hover:bg-accent hover:text-base transition-colors"
+        >
+          View network table instead →
+        </button>
+      </div>
+    </div>
   );
 }
