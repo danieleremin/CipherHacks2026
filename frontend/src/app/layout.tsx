@@ -16,8 +16,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'WiFind',
-  description: 'WiFind — WiFi RF direction-finding dashboard',
+  title: 'Hyperlocal Access Monitoring & Observation Network',
+  description: 'Hyperlocal Access Monitoring & Observation Network — WiFi RF direction-finding dashboard',
   viewport: 'width=device-width, initial-scale=1',
 };
 

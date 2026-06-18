@@ -159,7 +159,7 @@ export default function HomePage() {
         {/* Header */}
         <div className="text-center mb-8">
           <div className="text-4xl font-mono font-bold text-accent mb-2">
-            WiFind
+            Hyperlocal Access Monitoring & Observation Network
           </div>
           <div className="text-text-secondary">
             Post-mission WiFi detection analysis
