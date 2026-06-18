@@ -1,8 +1,8 @@
 // firmware/arduino-r4-base/src/led_matrix.h
-// Onboard 12x8 LED matrix: scanning sweep + flash on record receive + cone-mode indicator.
+// Onboard 12x8 LED matrix: heartbeat sweep + flash whenever a record is
+// forwarded to the frontend.
 
 #pragma once
-#include <stdint.h>
 
 void led_matrix_init();
-void led_matrix_update(uint8_t mode, bool cone_locked, bool record_just_received);
+void led_matrix_update(bool record_just_forwarded);
