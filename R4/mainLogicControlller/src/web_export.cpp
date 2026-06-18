@@ -86,10 +86,10 @@ void web_export_broadcast_record(const WardrivingRecord* r) {
 
     char json[256];
     snprintf(json, sizeof(json),
-        "{\"node_id\":%u,\"mode\":%u,\"in_cone\":%u,\"uptime_ms\":%lu,"
+        "{\"node_id\":%u,\"schema_version\":%u,\"mode\":%u,\"in_cone\":%u,\"uptime_ms\":%lu,"
         "\"bssid\":\"%s\",\"ssid\":\"%s\",\"rssi\":%d,\"channel\":%u,"
         "\"enc_type\":%u,\"bearing_deg\":%.1f,\"range_m\":%.1f,\"h_lock_deg\":%.1f}",
-        r->node_id, r->mode, r->in_cone, (unsigned long)r->uptime_ms,
+        r->node_id, r->schema_version, r->mode, r->in_cone, (unsigned long)r->uptime_ms,
         bssid_str, ssid_esc, r->rssi, r->channel,
         r->enc_type, r->bearing_deg, r->range_m, r->h_lock_deg);
 

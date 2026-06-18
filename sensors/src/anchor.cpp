@@ -51,6 +51,10 @@ void anchor_init() {
     // Start WiFi in AP mode
     WiFi.mode(WIFI_AP);
 
+    // Spoof MAC address for AP interface to match frontend compile-time constant
+    uint8_t mac[] = {0x30, 0x76, 0xF5, 0x06, 0x28, 0xC5};
+    esp_wifi_set_mac(WIFI_IF_AP, mac);
+
     // softAP(ssid, password, channel, hidden, max_connection)
     // password = nullptr → open network (no WPA overhead, just a beacon)
     // max_connection = 0 → accept no clients, just broadcast the beacon
