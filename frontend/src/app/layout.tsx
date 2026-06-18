@@ -16,8 +16,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Wardriving Dashboard',
-  description: 'Post-mission WiFi wardriving analysis dashboard',
+  title: 'WiFind',
+  description: 'WiFind — WiFi RF direction-finding dashboard',
   viewport: 'width=device-width, initial-scale=1',
 };
 

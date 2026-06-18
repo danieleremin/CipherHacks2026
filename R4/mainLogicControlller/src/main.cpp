@@ -18,6 +18,7 @@
 //   multi_ap_bearing — differential RSSI correlator
 
 #include <Arduino.h>
+#include "config.h"
 #include "web_export.h"
 #include "led_matrix.h"
 #include "multi_ap_bearing.h"
@@ -92,20 +93,23 @@ static void processDetection(const String& line) {
     led_matrix_update(true);
 
     // Parse fields needed for bearing correlator
-    String bssid_s  = jsonGet(line, "bssid");
-    String node_s   = jsonGet(line, "node");
-    String rssi_s   = jsonGet(line, "rssi");
-    String uptime_s = jsonGet(line, "uptime");
+    String bssid_s = jsonGet(line, "bssid");
+    String node_s  = jsonGet(line, "node");
+    String rssi_s  = jsonGet(line, "rssi");
 
     if (bssid_s.length() == 0 || node_s.length() == 0) return;
 
-    uint8_t  node_id  = (uint8_t)node_s.toInt();
-    int8_t   rssi     = (int8_t)rssi_s.toInt();
-    uint32_t uptime   = (uint32_t)uptime_s.toInt();
+    uint8_t node_id = (uint8_t)node_s.toInt();
+    int8_t  rssi    = (int8_t)rssi_s.toInt();
 
     if (node_id != 1 && node_id != 2) return;
 
-    g_bearing.update(bssid_s.c_str(), node_id, rssi, uptime);
+    // Timestamp with the R4's own clock — NOT the scanner's uptime_ms.
+    // node1 and node2 are separate boards with independent uptime clocks,
+    // so their uptime_ms values are not comparable for correlation or
+    // expiry. Records arrive over serial in near-real-time, so millis()
+    // is the correct shared time base. (expire() below also uses it.)
+    g_bearing.update(bssid_s.c_str(), node_id, rssi, millis());
 }
 
 // ── setup() ────────────────────────────────────────────────────────────────
@@ -137,18 +141,30 @@ void loop() {
     // ── Accept and poll WebSocket clients ─────────────────────────────────
     web_export_poll();
 
-    // ── Read lines from node3 ─────────────────────────────────────────────
+    // ── Read lines from node3 (non-blocking) ──────────────────────────────
+    // Accumulate one line char-at-a-time so loop() never stalls on a partial
+    // line (unlike readStringUntil, which blocks up to the Stream timeout and
+    // would starve web_export_poll() / the WebSocket keep-alive).
+    static char   line_buf[MAX_LINE_LEN];
+    static size_t line_len = 0;
     while (Serial1.available()) {
-        String line = Serial1.readStringUntil('\n');
-        line.trim();
-        if (line.length() == 0) continue;
-
-        if (line.charAt(0) == '{') {
-            processDetection(line);
-        } else {
-            // Diagnostic line from node3 — log to USB Serial only
-            Serial.print("[NODE3] "); Serial.println(line);
+        char c = (char)Serial1.read();
+        if (c != '\n') {
+            if (line_len < MAX_LINE_LEN - 1) line_buf[line_len++] = c;
+            else line_len = 0;   // oversized line — drop and resync on next '\n'
+            continue;
         }
+        if (line_len > 0 && line_buf[line_len - 1] == '\r') line_len--;  // strip CR
+        line_buf[line_len] = '\0';
+        if (line_len > 0) {
+            if (line_buf[0] == '{') {
+                processDetection(String(line_buf));
+            } else {
+                // Diagnostic line from node3 — log to USB Serial only
+                Serial.print("[NODE3] "); Serial.println(line_buf);
+            }
+        }
+        line_len = 0;
     }
 
     // ── Emit bearing estimate ─────────────────────────────────────────────
@@ -160,8 +176,8 @@ void loop() {
     // ── Expire stale AP records ───────────────────────────────────────────
     if (now - g_last_expire >= EXPIRE_INTERVAL_MS) {
         g_last_expire = now;
-        // Use millis() as proxy for uptime — the correlator only cares
-        // about relative age, not absolute time
+        // Both update() and expire() use the R4's millis() clock
+        // (see processDetection), so record ages are well-defined.
         g_bearing.expire(now);
     }
 

@@ -23,7 +23,7 @@ export function Navbar() {
       <div className="flex items-center justify-between max-w-full">
         {/* Logo */}
         <Link href="/" className="font-mono text-lg font-bold text-accent">
-          WARDRIVING
+          WiFind
         </Link>
 
         {/* Center: Session name */}

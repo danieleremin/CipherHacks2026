@@ -9,6 +9,7 @@ export function SummaryBar() {
   const session = useSessionStore((s) => s.session);
   const filtered = useFilteredDetections();
   const latestBearing = useLatestBearing();
+  const liveBearing = useSessionStore((s) => s.liveBearing);
 
   // Compute summary from filtered detections
   const summary = useMemo(() => {
@@ -80,8 +81,19 @@ export function SummaryBar() {
           </span>
         </div>
 
-        {/* Bearing (only when anchor data is present) */}
-        {session.summary.hasAnchorData &&
+        {/* Bearing — prefer the R4's live estimate, else the computed one */}
+        {liveBearing ? (
+          <div className="flex items-center gap-2 border-l border-border pl-4">
+            <span className="text-text-secondary">Bearing:</span>
+            <span className="font-mono font-bold text-accent">
+              {Math.round(liveBearing.bearing)}°
+              <span className="text-text-secondary ml-1">
+                ({Math.round(liveBearing.confidence * 100)}%, {liveBearing.apCount} AP)
+              </span>
+            </span>
+          </div>
+        ) : (
+          session.summary.hasAnchorData &&
           latestBearing?.bearingEstimateDeg != null && (
             <div className="flex items-center gap-2 border-l border-border pl-4">
               <span className="text-text-secondary">Bearing:</span>
@@ -92,7 +104,8 @@ export function SummaryBar() {
                 </span>
               </span>
             </div>
-          )}
+          )
+        )}
       </div>
     </div>
   );

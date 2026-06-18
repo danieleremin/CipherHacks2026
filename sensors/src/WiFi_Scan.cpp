@@ -1,7 +1,7 @@
 // firmware/esp32-sensor/src/wifi_scan.cpp
 // WiFi promiscuous capture, 802.11 IE parsing, channel hopping, ESP-NOW setup.
 
-#include "wifi_scan.h"
+#include "WiFi_Scan.h"
 #include "config.h"
 #include "imu.h"
 #include "rangefinder.h"

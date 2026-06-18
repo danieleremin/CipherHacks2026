@@ -32,11 +32,13 @@ firmware lives in its own folder and builds with [PlatformIO](https://platformio
    received record to a **JSON line** and prints it on its serial, which is wired into
    the R4.
 
-3. **Arduino R4 WiFi (`R4/mainLogicControlller`)** — a **dumb relay**. It reads node3's
-   JSON lines over a wired serial link, hosts its own WiFi access point, runs a WebSocket
-   server, and forwards every JSON line to connected clients **verbatim**. It does not
-   parse or re-encode records; it only filters out node3's non-JSON diagnostic lines. An
-   onboard LED matrix flashes as records are forwarded.
+3. **Arduino R4 WiFi (`R4/mainLogicControlller`)** — **relay + bearing estimator**. It
+   reads node3's JSON lines over a wired serial link, hosts its own WiFi access point, runs
+   a WebSocket server, and forwards every detection line to connected clients **verbatim**
+   (filtering out node3's non-JSON diagnostic lines). In addition, it feeds each detection
+   into a multi-AP differential-RSSI correlator (`multi_ap_bearing`) and, every 500 ms,
+   pushes a computed bearing estimate to the same WebSocket clients as a separate
+   `{"type":"bearing",…}` message. An onboard LED matrix flashes as records are forwarded.
 
 4. **Frontend** — a browser dashboard that connects to the R4's WebSocket. *Out of
    scope for this README.*
@@ -190,7 +192,17 @@ What to expect:
 ```
 Wardriver R4 ready — relaying node3 JSON to WebSocket.
 [web] AP "wardriver-r4" up, ws://192.168.4.1:8080
+[main] bearing correlator ready — max 48 APs
 ```
+
+and, every 10 s, a status line reporting the correlator state:
+
+```
+[main] uptime=30s fwd=128 tracked=11 correlated=6 bearing=127.4deg conf=0.82 ap=6
+```
+
+`correlated` is the number of APs currently seen by both nodes; bearing reads
+`n/a (need 2+ correlated APs)` until that reaches 2.
 
 Diagnostic lines from node3 (anything not starting with `{`) are echoed here prefixed
 with `[NODE3]`; JSON detection lines are forwarded to WebSocket clients, not printed.
@@ -219,8 +231,18 @@ with `[NODE3]`; JSON detection lines are forwarded to WebSocket clients, not pri
    {"node":1,"schema":1,"mode":0,"uptime":9750,"bssid":"2E:7B:C8:EA:A6:EA","ssid":"…","rssi":-85,"ch":6,"enc":3,"bearing":-1.0,"range":-1.00,"in_cone":1,"h_lock":-1.0}
    ```
 
+5. Once **both** scanners report and at least 2 access points are seen by both nodes,
+   the R4 also emits a bearing estimate every 500 ms (a separate message keyed by
+   `"type":"bearing"`):
+
+   ```json
+   {"type":"bearing","bearing":127.4,"confidence":0.82,"ap_count":6,"delta_avg":7.2}
+   ```
+
 Getting the `hello` but no detections means the R4 is healthy but nothing valid is
-arriving on its node3 serial link — check §6.
+arriving on its node3 serial link — check §6. Getting detections but never a
+`type:bearing` message means fewer than 2 APs are correlated across both nodes — check
+that node1 *and* node2 are both running and the anchor sync burst is reaching them.
 
 > **Quick bench test without node3:** with the R4's RX1 (pin 0) wired to a USB-serial
 > adapter at 115200, paste a `{...}` line + newline and it appears on your WebSocket

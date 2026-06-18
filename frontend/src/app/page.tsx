@@ -4,19 +4,29 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/session';
 import { parseCSV } from '@/lib/parser';
-import { startLiveFeed } from '@/lib/liveFeed';
+import { startLiveFeed, stopLiveFeed } from '@/lib/liveFeed';
 import { Upload, AlertCircle, CheckCircle, Radio } from 'lucide-react';
 
 export default function HomePage() {
   const router = useRouter();
   const setSession = useSessionStore((s) => s.setSession);
   const setLiveStatus = useSessionStore((s) => s.setLiveStatus);
+  const setLiveBearing = useSessionStore((s) => s.setLiveBearing);
+
+  // A CSV session is not a live session — tear down any live feed and clear
+  // its status so the dashboard doesn't show a stale "Disconnect" control.
+  const resetLiveState = () => {
+    stopLiveFeed();
+    setLiveStatus('off');
+    setLiveBearing(null);
+  };
 
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [liveUrl, setLiveUrl] = useState('ws://192.168.4.1:8080');
+  const [connecting, setConnecting] = useState(false);
 
   // Handle file selection from input or drop
   const handleFiles = (newFiles: File[]) => {
@@ -49,6 +59,7 @@ export default function HomePage() {
     setLoading(true);
     setError(null);
     setProgress(0);
+    resetLiveState();
 
     try {
       // Parse the first CSV file (extended format preferred)
@@ -65,9 +76,10 @@ export default function HomePage() {
     }
   };
 
-  // Connect to a live R4 WebSocket feed and jump straight to the dashboard.
-  // startLiveFeed seeds an initial (empty) session, so the dashboard won't
-  // bounce back to home before the first frame arrives.
+  // Connect to a live R4 WebSocket feed. We only navigate to the dashboard
+  // once the socket actually opens — if it errors, closes, or never responds
+  // within the timeout, we stay on this page and show an error instead of
+  // displaying an empty dashboard.
   const handleConnectLive = () => {
     const url = liveUrl.trim();
     if (!/^wss?:\/\//.test(url)) {
@@ -75,8 +87,45 @@ export default function HomePage() {
       return;
     }
     setError(null);
-    startLiveFeed(url, { onSession: setSession, onStatus: setLiveStatus });
-    router.push('/dashboard');
+    setLiveBearing(null);
+    setConnecting(true);
+
+    let settled = false;
+    const fail = (msg: string) => {
+      if (settled) return;
+      settled = true;
+      stopLiveFeed();
+      setLiveStatus('off');
+      setConnecting(false);
+      setError(msg);
+    };
+    const timer = setTimeout(
+      () =>
+        fail(
+          `Could not reach ${url}. Join the R4's WiFi AP and check the address/port.`
+        ),
+      6000
+    );
+
+    startLiveFeed(url, {
+      onSession: setSession,
+      onBearing: setLiveBearing,
+      onStatus: (status) => {
+        setLiveStatus(status);
+        if (settled) return;
+        if (status === 'connected') {
+          settled = true;
+          clearTimeout(timer);
+          setConnecting(false);
+          router.push('/dashboard');
+        } else if (status === 'error' || status === 'disconnected') {
+          clearTimeout(timer);
+          fail(
+            "Couldn't connect to the R4. Is it powered, and are you on its WiFi AP?"
+          );
+        }
+      },
+    });
   };
 
   // Load sample data
@@ -84,6 +133,7 @@ export default function HomePage() {
     setLoading(true);
     setError(null);
     setProgress(0);
+    resetLiveState();
 
     try {
       // Fetch sample CSV from public folder
@@ -109,7 +159,7 @@ export default function HomePage() {
         {/* Header */}
         <div className="text-center mb-8">
           <div className="text-4xl font-mono font-bold text-accent mb-2">
-            WARDRIVING
+            WiFind
           </div>
           <div className="text-text-secondary">
             Post-mission WiFi detection analysis
@@ -241,15 +291,16 @@ export default function HomePage() {
                 onChange={(e) => setLiveUrl(e.target.value)}
                 placeholder="ws://192.168.4.1:8080"
                 spellCheck={false}
-                className="flex-1 min-w-0 px-3 py-2 bg-base border border-border rounded font-mono text-sm text-text-primary focus:border-accent focus:outline-none"
+                disabled={connecting}
+                className="flex-1 min-w-0 px-3 py-2 bg-base border border-border rounded font-mono text-sm text-text-primary focus:border-accent focus:outline-none disabled:opacity-50"
               />
               <button
                 onClick={handleConnectLive}
-                disabled={loading}
+                disabled={loading || connecting}
                 className="flex items-center gap-2 px-4 py-2 bg-accent text-base font-mono text-sm font-semibold rounded hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Radio className="w-4 h-4" />
-                Connect
+                <Radio className={`w-4 h-4 ${connecting ? 'animate-pulse' : ''}`} />
+                {connecting ? 'Connecting…' : 'Connect'}
               </button>
             </div>
             <p className="text-xs text-text-secondary mt-2">

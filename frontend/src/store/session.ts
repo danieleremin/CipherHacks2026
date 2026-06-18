@@ -9,7 +9,7 @@ import { useMemo } from 'react';
 import { Session, AnchorObservation } from '@/types/detection';
 import { FilterState, DEFAULT_FILTERS } from '@/lib/filters';
 import { ANCHOR_BSSID } from '@/lib/constants';
-import { LiveStatus, stopLiveFeed } from '@/lib/liveFeed';
+import { LiveStatus, LiveBearing, stopLiveFeed } from '@/lib/liveFeed';
 
 export interface SessionStore {
   // Session data
@@ -20,6 +20,8 @@ export interface SessionStore {
   // Live feed ('off' when no live connection is active)
   liveStatus: LiveStatus | 'off';
   setLiveStatus: (status: LiveStatus | 'off') => void;
+  liveBearing: LiveBearing | null; // latest R4-computed bearing, null until one arrives
+  setLiveBearing: (bearing: LiveBearing | null) => void;
 
   // Filter state
   filters: FilterState;
@@ -57,12 +59,15 @@ export const useSessionStore = create<SessionStore>((set) => ({
       selectedObservationIdx: null,
       filters: DEFAULT_FILTERS,
       liveStatus: 'off',
+      liveBearing: null,
     });
   },
 
   // Live feed
   liveStatus: 'off',
   setLiveStatus: (liveStatus) => set({ liveStatus }),
+  liveBearing: null,
+  setLiveBearing: (liveBearing) => set({ liveBearing }),
 
   // Filter state
   filters: DEFAULT_FILTERS,

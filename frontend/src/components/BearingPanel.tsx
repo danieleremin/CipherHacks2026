@@ -11,7 +11,11 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { useAnchorObservations, useLatestBearing } from '@/store/session';
+import {
+  useAnchorObservations,
+  useLatestBearing,
+  useSessionStore,
+} from '@/store/session';
 import { formatUptimeMMSS } from '@/lib/format';
 
 /**
@@ -132,6 +136,17 @@ function CompassRose({
 export function BearingPanel() {
   const observations = useAnchorObservations();
   const latest = useLatestBearing();
+  const liveBearing = useSessionStore((s) => s.liveBearing);
+  const session = useSessionStore((s) => s.session);
+
+  // Prefer the R4's live estimate; fall back to the client-side computation
+  // when there is no live feed (e.g. analyzing a loaded CSV).
+  const bearingDeg = liveBearing
+    ? liveBearing.bearing
+    : (latest?.bearingEstimateDeg ?? null);
+  const confidence = liveBearing
+    ? liveBearing.confidence
+    : (latest?.confidenceScore ?? 0);
 
   // Bearing-over-time series: only confident observations, with an
   // uncertainty band of ±15°.
@@ -150,16 +165,24 @@ export function BearingPanel() {
       }));
   }, [observations]);
 
-  // Most recent RSSI comparison for the stat card
-  const latestPair = useMemo(() => {
-    for (let i = observations.length - 1; i >= 0; i--) {
-      const o = observations[i];
-      if (o.rssiNode1 !== null || o.rssiNode2 !== null) return o;
+  // Latest anchor RSSI per node, computed INDEPENDENTLY for each node.
+  // We deliberately do not pair node1<->node2 by their uptime here: the two
+  // scanners boot independently, so their uptime_ms clocks differ by an
+  // arbitrary offset and window-matching makes node 2 blink in and out. Just
+  // show the most recent anchor reading each node actually reported.
+  const anchorRssi = useMemo(() => {
+    const dets = session?.detections ?? [];
+    let n1: number | null = null;
+    let n2: number | null = null;
+    for (let i = dets.length - 1; i >= 0 && (n1 === null || n2 === null); i--) {
+      const d = dets[i];
+      if (!d.isAnchor) continue;
+      if (d.nodeId === 1 && n1 === null) n1 = d.rssi;
+      else if (d.nodeId === 2 && n2 === null) n2 = d.rssi;
     }
-    return null;
-  }, [observations]);
-
-  const delta = latestPair?.rssiDelta ?? null;
+    const delta = n1 !== null && n2 !== null ? n1 - n2 : null;
+    return { n1, n2, delta };
+  }, [session]);
 
   return (
     <div className="bg-surface border border-border rounded-lg p-4 shadow">
@@ -169,11 +192,13 @@ export function BearingPanel() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         {/* Compass rose */}
-        <div className="flex items-center justify-center bg-base border border-border rounded-lg p-4">
-          <CompassRose
-            bearingDeg={latest?.bearingEstimateDeg ?? null}
-            confidence={latest?.confidenceScore ?? 0}
-          />
+        <div className="flex flex-col items-center justify-center bg-base border border-border rounded-lg p-4">
+          <CompassRose bearingDeg={bearingDeg} confidence={confidence} />
+          <div className="text-[10px] font-mono text-text-secondary uppercase tracking-wider mt-1">
+            {liveBearing
+              ? `R4 live · ${liveBearing.apCount} AP`
+              : 'computed (anchor observations)'}
+          </div>
         </div>
 
         {/* Node RSSI comparison */}
@@ -184,37 +209,35 @@ export function BearingPanel() {
           <div className="flex justify-between">
             <span className="text-text-secondary">Anchor RSSI node 1:</span>
             <span className="font-bold text-text-primary">
-              {latestPair?.rssiNode1 != null
-                ? `${latestPair.rssiNode1} dBm`
-                : '—'}
+              {anchorRssi.n1 != null ? `${anchorRssi.n1} dBm` : '—'}
             </span>
           </div>
           <div className="flex justify-between">
             <span className="text-text-secondary">Anchor RSSI node 2:</span>
             <span className="font-bold text-text-primary">
-              {latestPair?.rssiNode2 != null
-                ? `${latestPair.rssiNode2} dBm`
-                : '—'}
+              {anchorRssi.n2 != null ? `${anchorRssi.n2} dBm` : '—'}
             </span>
           </div>
           <div className="flex justify-between border-t border-border pt-2">
             <span className="text-text-secondary">Delta:</span>
             <span
               className={`font-bold ${
-                delta == null
+                anchorRssi.delta == null
                   ? 'text-text-secondary'
-                  : delta >= 0
+                  : anchorRssi.delta >= 0
                     ? 'text-signal-strong'
                     : 'text-signal-mid'
               }`}
             >
-              {delta != null ? `${delta > 0 ? '+' : ''}${delta} dBm` : '—'}
+              {anchorRssi.delta != null
+                ? `${anchorRssi.delta > 0 ? '+' : ''}${anchorRssi.delta} dBm`
+                : '—'}
             </span>
           </div>
           <div className="flex justify-between">
             <span className="text-text-secondary">Confidence:</span>
             <span className="font-bold text-accent">
-              {latest ? latest.confidenceScore.toFixed(2) : '0.00'}
+              {confidence.toFixed(2)}
             </span>
           </div>
         </div>

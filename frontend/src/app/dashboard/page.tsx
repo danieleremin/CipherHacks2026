@@ -24,6 +24,7 @@ const SHOW_MAP = false;
 export default function DashboardPage() {
   const router = useRouter();
   const session = useSessionStore((s) => s.session);
+  const liveBearing = useSessionStore((s) => s.liveBearing);
 
   // Redirect to home if no session loaded
   useEffect(() => {
@@ -89,8 +90,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Bearing estimation (only when anchor data is present) */}
-      {session.summary.hasAnchorData && (
+      {/* Bearing estimation — when the R4 is sending a live estimate, or
+          when client-side anchor observations exist */}
+      {(session.summary.hasAnchorData || liveBearing) && (
         <div className="px-4">
           <BearingPanel />
         </div>

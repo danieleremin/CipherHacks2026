@@ -16,9 +16,18 @@ import { jsonToDetection, buildLiveSession } from './live';
 
 export type LiveStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
+// The R4-computed bearing estimate, pushed as {"type":"bearing",...} ~every 500ms.
+export interface LiveBearing {
+  bearing: number;    // degrees, 0-360
+  confidence: number; // 0.0-1.0
+  apCount: number;    // APs that contributed
+  deltaAvg: number;   // mean |rssi_node1 - rssi_node2|
+}
+
 interface LiveCallbacks {
   onSession: (session: Session) => void;
   onStatus: (status: LiveStatus) => void;
+  onBearing?: (bearing: LiveBearing) => void;
 }
 
 const FLUSH_MS = 400;
@@ -77,6 +86,20 @@ export function startLiveFeed(url: string, cbs: LiveCallbacks): void {
     } catch {
       return; // ignore non-JSON noise
     }
+
+    // R4-computed bearing estimate — surface it directly instead of dropping
+    // it as a non-detection frame (jsonToDetection returns null for it).
+    const f = frame as Record<string, unknown>;
+    if (f && f.type === 'bearing') {
+      cbs.onBearing?.({
+        bearing: Number(f.bearing),
+        confidence: Number(f.confidence),
+        apCount: Number(f.ap_count),
+        deltaAvg: Number(f.delta_avg),
+      });
+      return;
+    }
+
     const d = jsonToDetection(frame);
     if (d) {
       buffer.push(d);
