@@ -9,12 +9,17 @@ import { useMemo } from 'react';
 import { Session, AnchorObservation } from '@/types/detection';
 import { FilterState, DEFAULT_FILTERS } from '@/lib/filters';
 import { ANCHOR_BSSID } from '@/lib/constants';
+import { LiveStatus, stopLiveFeed } from '@/lib/liveFeed';
 
 export interface SessionStore {
   // Session data
   session: Session | null;
   setSession: (session: Session) => void;
   clearSession: () => void;
+
+  // Live feed ('off' when no live connection is active)
+  liveStatus: LiveStatus | 'off';
+  setLiveStatus: (status: LiveStatus | 'off') => void;
 
   // Filter state
   filters: FilterState;
@@ -44,13 +49,20 @@ export const useSessionStore = create<SessionStore>((set) => ({
   // Session data
   session: null,
   setSession: (session) => set({ session }),
-  clearSession: () =>
+  clearSession: () => {
+    stopLiveFeed();
     set({
       session: null,
       selectedMac: null,
       selectedObservationIdx: null,
       filters: DEFAULT_FILTERS,
-    }),
+      liveStatus: 'off',
+    });
+  },
+
+  // Live feed
+  liveStatus: 'off',
+  setLiveStatus: (liveStatus) => set({ liveStatus }),
 
   // Filter state
   filters: DEFAULT_FILTERS,

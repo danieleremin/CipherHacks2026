@@ -4,16 +4,19 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/session';
 import { parseCSV } from '@/lib/parser';
-import { Upload, AlertCircle, CheckCircle } from 'lucide-react';
+import { startLiveFeed } from '@/lib/liveFeed';
+import { Upload, AlertCircle, CheckCircle, Radio } from 'lucide-react';
 
 export default function HomePage() {
   const router = useRouter();
   const setSession = useSessionStore((s) => s.setSession);
+  const setLiveStatus = useSessionStore((s) => s.setLiveStatus);
 
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [liveUrl, setLiveUrl] = useState('ws://192.168.4.1:8080');
 
   // Handle file selection from input or drop
   const handleFiles = (newFiles: File[]) => {
@@ -60,6 +63,20 @@ export default function HomePage() {
       );
       setLoading(false);
     }
+  };
+
+  // Connect to a live R4 WebSocket feed and jump straight to the dashboard.
+  // startLiveFeed seeds an initial (empty) session, so the dashboard won't
+  // bounce back to home before the first frame arrives.
+  const handleConnectLive = () => {
+    const url = liveUrl.trim();
+    if (!/^wss?:\/\//.test(url)) {
+      setError('Enter a WebSocket URL, e.g. ws://192.168.4.1:8080');
+      return;
+    }
+    setError(null);
+    startLiveFeed(url, { onSession: setSession, onStatus: setLiveStatus });
+    router.push('/dashboard');
   };
 
   // Load sample data
@@ -207,6 +224,38 @@ export default function HomePage() {
           >
             Load Sample Data
           </button>
+
+          {/* Live Device Connection */}
+          <div className="mt-6 pt-6 border-t border-border">
+            <label
+              htmlFor="live-url"
+              className="block text-xs text-text-secondary uppercase tracking-wider mb-2"
+            >
+              Connect to live device
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="live-url"
+                type="text"
+                value={liveUrl}
+                onChange={(e) => setLiveUrl(e.target.value)}
+                placeholder="ws://192.168.4.1:8080"
+                spellCheck={false}
+                className="flex-1 min-w-0 px-3 py-2 bg-base border border-border rounded font-mono text-sm text-text-primary focus:border-accent focus:outline-none"
+              />
+              <button
+                onClick={handleConnectLive}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 bg-accent text-base font-mono text-sm font-semibold rounded hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Radio className="w-4 h-4" />
+                Connect
+              </button>
+            </div>
+            <p className="text-xs text-text-secondary mt-2">
+              Join the R4&apos;s WiFi AP first, then connect to its WebSocket.
+            </p>
+          </div>
         </div>
 
         {/* Footer */}

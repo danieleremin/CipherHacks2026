@@ -16,6 +16,11 @@ import { BearingPanel } from '@/components/BearingPanel';
 import { FilterBar } from '@/components/FilterBar';
 import { Navbar } from '@/components/Navbar';
 
+// GPS was removed from the hardware, so there are no coordinates to plot.
+// The map panel is hidden rather than deleted — flip this to true to restore
+// it if/when GPS data returns. (DetectionMap is currently a no-GPS placeholder.)
+const SHOW_MAP = false;
+
 export default function DashboardPage() {
   const router = useRouter();
   const session = useSessionStore((s) => s.session);
@@ -45,15 +50,22 @@ export default function DashboardPage() {
 
       {/* Main Layout */}
       <div className="flex flex-col lg:flex-row gap-4 p-4 max-w-full">
-        {/* Left: Map (60% on desktop, full width on mobile) */}
-        <div className="flex-1 lg:w-3/5">
-          <div className="bg-surface border border-border rounded-lg overflow-hidden shadow-lg" style={{ height: '600px' }}>
-            <DetectionMap />
+        {/* Left: Map (60% on desktop, full width on mobile) — hidden, no GPS */}
+        {SHOW_MAP && (
+          <div className="flex-1 lg:w-3/5">
+            <div className="bg-surface border border-border rounded-lg overflow-hidden shadow-lg" style={{ height: '600px' }}>
+              <DetectionMap />
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Right: Panels (40% on desktop, stacked on mobile) */}
-        <div className="flex-1 lg:w-2/5 space-y-4 overflow-y-auto" style={{ maxHeight: '600px' }}>
+        {/* Right: Panels — full width when the map is hidden */}
+        <div
+          className={`flex-1 space-y-4 ${
+            SHOW_MAP ? 'lg:w-2/5 overflow-y-auto' : 'lg:w-full'
+          }`}
+          style={SHOW_MAP ? { maxHeight: '600px' } : undefined}
+        >
           {/* Networks Table */}
           <div
             id="network-table"
