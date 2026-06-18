@@ -141,8 +141,12 @@ void anchor_init() {
     // STA mode: required for ESP-NOW to function; no association needed.
     WiFi.mode(WIFI_AP_STA);
 
-    // Start soft AP on the fixed anchor channel, open network, no clients
-    WiFi.softAP(ANCHOR_SSID, nullptr, ANCHOR_CHANNEL, false, 0);
+    // Start soft AP on the fixed anchor channel. ANCHOR_PASSWORD empty => open
+    // network; otherwise WPA2 (passphrase must be 8-63 chars). The beacon is
+    // only an RSSI reference — scanners never associate — so this is purely to
+    // keep stray clients off.
+    const char* ap_pass = (ANCHOR_PASSWORD[0] != '\0') ? ANCHOR_PASSWORD : nullptr;
+    WiFi.softAP(ANCHOR_SSID, ap_pass, ANCHOR_CHANNEL, false, 0);
 
     // Lock the STA side to the same channel so ESP-NOW receive works
     esp_wifi_set_channel(ANCHOR_CHANNEL, WIFI_SECOND_CHAN_NONE);
@@ -182,6 +186,7 @@ void anchor_init() {
     Serial.printf("[ANCHOR] BSSID   : %02X:%02X:%02X:%02X:%02X:%02X\n",
                   ap_mac[0], ap_mac[1], ap_mac[2], ap_mac[3], ap_mac[4], ap_mac[5]);
     Serial.printf ("[ANCHOR] Channel : %d\n", ANCHOR_CHANNEL);
+    Serial.printf ("[ANCHOR] Security: %s\n", ap_pass ? "WPA2" : "open");
     Serial.printf ("[ANCHOR] Mode    : AP+STA (anchor + base receiver)\n");
     Serial.println("[ANCHOR] Waiting for scanner records...");
     Serial.println("[ANCHOR] ──────────────────────────────");

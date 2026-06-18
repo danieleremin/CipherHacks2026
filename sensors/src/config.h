@@ -43,6 +43,11 @@
 #ifndef ANCHOR_SSID
   #define ANCHOR_SSID      "WARDRIVE_ANCHOR"
 #endif
+// Empty string => open network. To secure it, set -DANCHOR_PASSWORD=\"...\"
+// in platformio.ini (WPA2 passphrase must be 8-63 characters).
+#ifndef ANCHOR_PASSWORD
+  #define ANCHOR_PASSWORD  "anchorpass"
+#endif
 #ifndef ANCHOR_TX_POWER
   #define ANCHOR_TX_POWER  20   // dBm × 4 in ESP-IDF (20 = 5 dBm)
 #endif
