@@ -4,7 +4,7 @@
 // The R4 receives detection records from the ESP-NOW bridge over wired
 // UART (it has no native ESP-NOW itself), sends mode commands back out the
 // same link, and exposes records to a separately-built React frontend over
-// a WiFi WebSocket. See ../../shared/uart_bridge_protocol.h for the bridge
+// a WiFi WebSocket. See ../../../shared/uart_bridge_protocol.h for the bridge
 // link rationale.
 
 #pragma once
@@ -24,5 +24,6 @@
 #define WIFI_AP_SSID      "wardriver-r4"
 #define WIFI_AP_PASSWORD  "wardrive123"
 
-// WebSocket port the frontend connects to (ws://<r4-ip>:WS_PORT)
-#define WS_PORT  81
+// WebSocket port the frontend connects to (ws://<r4-ip>:WS_PORT).
+// 8080 per serialUsbSpec.md.
+#define WS_PORT  8080

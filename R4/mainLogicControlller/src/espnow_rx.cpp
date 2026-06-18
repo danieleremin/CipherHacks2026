@@ -4,7 +4,7 @@
 #include <string.h>
 #include "espnow_rx.h"
 #include "config.h"
-#include "../../shared/uart_bridge_protocol.h"
+#include "../../../shared/uart_bridge_protocol.h"
 
 static WardrivingRecord rx_queue[RX_QUEUE_DEPTH];
 static uint8_t q_head = 0;

@@ -9,6 +9,10 @@
 static UnoR4WiFi_WebServer server;
 static UnoR4WiFi_WebSocket* ws = nullptr;
 
+// Count of detection records forwarded to clients — reported in the hello
+// message (see serialUsbSpec.md §4.4).
+static uint32_t records_forwarded = 0;
+
 static void handle_status(WiFiClient& client, const String& method, const String& request,
                            const QueryParams& params, const String& jsonData) {
     server.sendResponse(client, "Wardriver R4 — connect a WebSocket client to /", "text/plain");
@@ -16,6 +20,16 @@ static void handle_status(WiFiClient& client, const String& method, const String
 
 static void on_ws_open(net::WebSocket& conn) {
     Serial.println("[web] client connected");
+
+    // Greet the client with a hello frame carrying the R4's IP and the number
+    // of records forwarded so far (serialUsbSpec.md §4.4). The frontend keys on
+    // "type":"hello" to distinguish this from detection records.
+    IPAddress ip = WiFi.localIP();
+    char hello[96];
+    int n = snprintf(hello, sizeof(hello),
+        "{\"type\":\"hello\",\"ip\":\"%u.%u.%u.%u\",\"forwarded\":%lu}",
+        ip[0], ip[1], ip[2], ip[3], (unsigned long)records_forwarded);
+    conn.send(net::WebSocket::DataType::TEXT, hello, (uint16_t)n);
 }
 
 static void on_ws_close(net::WebSocket& conn, const net::WebSocket::CloseCode code,
@@ -84,14 +98,17 @@ void web_export_broadcast_record(const WardrivingRecord* r) {
     snprintf(bssid_str, sizeof(bssid_str), "%02X:%02X:%02X:%02X:%02X:%02X",
              r->bssid[0], r->bssid[1], r->bssid[2], r->bssid[3], r->bssid[4], r->bssid[5]);
 
+    // Field names and ordering follow serialUsbSpec.md §2.1 so the frontend
+    // can consume R4 records verbatim.
     char json[256];
     snprintf(json, sizeof(json),
-        "{\"node_id\":%u,\"schema_version\":%u,\"mode\":%u,\"in_cone\":%u,\"uptime_ms\":%lu,"
-        "\"bssid\":\"%s\",\"ssid\":\"%s\",\"rssi\":%d,\"channel\":%u,"
-        "\"enc_type\":%u,\"bearing_deg\":%.1f,\"range_m\":%.1f,\"h_lock_deg\":%.1f}",
-        r->node_id, r->schema_version, r->mode, r->in_cone, (unsigned long)r->uptime_ms,
+        "{\"node\":%u,\"schema\":%u,\"mode\":%u,\"uptime\":%lu,"
+        "\"bssid\":\"%s\",\"ssid\":\"%s\",\"rssi\":%d,\"ch\":%u,"
+        "\"enc\":%u,\"bearing\":%.1f,\"range\":%.2f,\"in_cone\":%u,\"h_lock\":%.1f}",
+        r->node_id, r->schema_version, r->mode, (unsigned long)r->uptime_ms,
         bssid_str, ssid_esc, r->rssi, r->channel,
-        r->enc_type, r->bearing_deg, r->range_m, r->h_lock_deg);
+        r->enc_type, r->bearing_deg, r->range_m, r->in_cone, r->h_lock_deg);
 
     ws->broadcastTXT(json);
+    records_forwarded++;
 }

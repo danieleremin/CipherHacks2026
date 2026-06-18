@@ -4,7 +4,7 @@
 #include <string.h>
 #include <Arduino_LED_Matrix.h>
 #include "led_matrix.h"
-#include "../../shared/packet_schema.h"
+#include "../../../shared/packet_schema.h"
 
 static ArduinoLEDMatrix matrix;
 static uint32_t last_step = 0;

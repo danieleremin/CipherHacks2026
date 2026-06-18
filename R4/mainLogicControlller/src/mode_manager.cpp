@@ -3,8 +3,8 @@
 #include <Arduino.h>
 #include "mode_manager.h"
 #include "config.h"
-#include "../../shared/packet_schema.h"
-#include "../../shared/uart_bridge_protocol.h"
+#include "../../../shared/packet_schema.h"
+#include "../../../shared/uart_bridge_protocol.h"
 
 static uint8_t current_mode = MODE_RADIUS;
 static bool    cone_locked  = false;

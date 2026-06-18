@@ -5,7 +5,7 @@
 // "rx from the bridge's UART link", not a direct radio callback.
 
 #pragma once
-#include "../../shared/packet_schema.h"
+#include "../../../shared/packet_schema.h"
 
 #define RX_QUEUE_DEPTH 32
 

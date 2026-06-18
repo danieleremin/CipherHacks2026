@@ -7,7 +7,7 @@
 
 #include <Arduino.h>
 #include "config.h"
-#include "../../shared/packet_schema.h"
+#include "../../../shared/packet_schema.h"
 #include "espnow_rx.h"
 #include "mode_manager.h"
 #include "led_matrix.h"
