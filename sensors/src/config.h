@@ -11,11 +11,15 @@
   #define NODE_ID  0x01
 #endif
 
-// ── ESP-NOW peer ───────────────────────────────────────────────────────────
-// MAC address of the Arduino R4 WiFi base node.
-// Read the R4's MAC from its setup() Serial output, then fill in here.
-// Format: six comma-separated 0x-prefixed hex bytes.
-#define BASE_NODE_MAC  { 0xA8, 0x44, 0x65, 0xFA, 0x12, 0xF4 }
+// ── ESP-NOW peers ─────────────────────────────────────────────────────────
+// BASE_NODE_MAC: MAC of the anchor/base node (node 3, the USB-serial bridge).
+// Read from node 3 serial output after flashing — printed as [ANCHOR] BSSID.
+#define BASE_NODE_MAC  { 0x30, 0x76, 0xF5, 0x06, 0x28, 0xC5 }
+// Scanner MACs: used by node 3 to send CMD_SYNC_CHANNEL to scanners.
+// Read from node 1 and node 2 serial output (printed at boot as MAC: XX:XX:XX...)
+// or from the esptool output during flashing (MAC: line).
+#define SCANNER_MAC_1  { 0xE0, 0x8C, 0xFE, 0xE6, 0x49, 0xD0 }
+#define SCANNER_MAC_2  { 0x8C, 0x94, 0xDF, 0x93, 0xC7, 0xA0 }
 
 // ── Cone mode ──────────────────────────────────────────────────────────────
 #define CONE_HALF_ANGLE_DEG  30.0f

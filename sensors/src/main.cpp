@@ -19,18 +19,20 @@
 // ANCHOR MODE — node 3
 // ─────────────────────────────────────────────────────────────────────────────
 #include "anchor.h"
+#include "esp_wifi.h"
 
 void setup() {
     Serial.begin(115200);
     delay(500);
 
-    Serial.printf("\n[BOOT] Wardriving ANCHOR node, NODE_ID=0x%02X\n", NODE_ID);
+    Serial.printf("\n[BOOT] Wardriving ANCHOR + BASE RECEIVER, NODE_ID=0x%02X\n", NODE_ID);
     Serial.printf("[BOOT] Schema version: %d\n", SCHEMA_VERSION);
     Serial.printf("[BOOT] Built: %s %s\n", __DATE__, __TIME__);
+    Serial.println("[BOOT] Mode: AP+STA — beacon + ESP-NOW receive + Serial JSON");
 
     pinMode(PIN_STATUS_LED, OUTPUT);
 
-    // Slow double-blink pattern = anchor mode (distinct from scanner)
+    // Slow double-blink = anchor+base mode
     for (int i = 0; i < 2; i++) {
         digitalWrite(PIN_STATUS_LED, HIGH); delay(400);
         digitalWrite(PIN_STATUS_LED, LOW);  delay(200);
@@ -38,13 +40,27 @@ void setup() {
 
     anchor_init();
 
-    // Solid LED = anchor broadcasting
+    // Solid LED = running
     digitalWrite(PIN_STATUS_LED, HIGH);
 }
 
+static uint32_t s_anchor_diag_ms = 0;
+
 void loop() {
     anchor_update();
-    delay(100);
+
+    uint32_t now = millis();
+    if (now - s_anchor_diag_ms >= 5000) {
+        s_anchor_diag_ms = now;
+        uint8_t ap_mac[6];
+        esp_wifi_get_mac(WIFI_IF_AP, ap_mac);
+        Serial.printf("[DIAG] anchor uptime=%lus rx=%lu bssid=%02X:%02X:%02X:%02X:%02X:%02X\n",
+                      now / 1000, anchor_records_received(),
+                      ap_mac[0], ap_mac[1], ap_mac[2],
+                      ap_mac[3], ap_mac[4], ap_mac[5]);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(10));
 }
 
 #else
@@ -52,7 +68,7 @@ void loop() {
 // SCANNER MODE — nodes 1 and 2
 // ─────────────────────────────────────────────────────────────────────────────
 #include "espnow_tx.h"
-#include "wifi_scan.h"
+#include "WiFi_Scan.h"
 #include "imu.h"
 #include "rangefinder.h"
 #include "rssi_avg.h"

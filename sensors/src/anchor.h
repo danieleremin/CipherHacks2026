@@ -1,29 +1,32 @@
 // firmware/esp32-sensor/src/anchor.h
-// Anchor node interface — reference transmitter for multi-node RSSI positioning.
-// Only compiled when ANCHOR_MODE is defined in build_flags.
+// Anchor node + base receiver.
+// Runs in WiFi AP+STA mode simultaneously:
+//   AP  — broadcasts WARDRIVE_ANCHOR beacon on ANCHOR_CHANNEL
+//   STA — not associated to any network, but ESP-NOW receive works
+//          on the AP channel
 //
-// The anchor node:
-//   - Broadcasts a WiFi soft AP beacon on a fixed channel (ANCHOR_CHANNEL)
-//   - SSID: WARDRIVE_ANCHOR (configurable via ANCHOR_SSID)
-//   - Accepts no client connections (max_connection = 0)
-//   - Reports its own status periodically over Serial
-//   - Listens for CMD_SYNC_CHANNEL from the R4 to switch channels if needed
+// Receives WardrivingRecord structs from scanner nodes via ESP-NOW.
+// Serializes each record as a JSON line and writes to Serial (USB)
+// for the Arduino R4 to relay over WebSocket.
 //
-// Scanner nodes detect WARDRIVE_ANCHOR in their normal beacon capture.
-// Because the anchor's BSSID (its MAC) and TX power are known constants,
-// the R4 can use differential RSSI between scanner nodes for that BSSID
-// to estimate bearing without relying on unknown third-party APs.
+// Periodically broadcasts CMD_SYNC_CHANNEL to scanner nodes, telling
+// them to dwell on ANCHOR_CHANNEL for a burst transmission window,
+// then releases them back to autonomous hopping.
 
 #pragma once
+#include <stdint.h>
 
 #ifdef ANCHOR_MODE
 
-// Initializes WiFi in AP mode and starts broadcasting.
+// Initialize WiFi AP+STA mode, ESP-NOW receive, and Serial JSON output.
 // Call once from setup() instead of wifi_scan_init().
 void anchor_init();
 
-// Prints status (uptime, channel, TX power) to Serial.
-// Call from loop() on a timer.
+// Drive the sync-channel burst cycle and print diagnostics.
+// Call from loop() every iteration.
 void anchor_update();
+
+// Returns total records received since boot.
+uint32_t anchor_records_received();
 
 #endif // ANCHOR_MODE
